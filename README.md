@@ -1,2 +1,25 @@
-# indistribution-ai
-AI-powered Tilda SEO and website management
+# INDISTRIBUTION AI / Tilda MCP
+
+Сервер только для чтения четырёх сайтов Tilda: indistribution.ru, heinedasaw.indistribution.ru, powders.indistribution.ru, molot.website.
+
+## Как загрузить в GitHub
+
+В приватном репозитории откройте **Add file → Upload files**, загрузите все файлы из папки и нажмите **Commit changes**. При загрузке через браузер ZIP нужно предварительно распаковать. Не загружайте реальные ключи и токены.
+
+## Timeweb Cloud App Platform
+
+1. Выберите приватный репозиторий и ветку `main`.
+2. В поле **Фреймворк** выберите **Dockerfile** (см. документацию Timeweb Cloud).
+3. Для первого запуска начните с минимальных ресурсов (ориентир: 1–2 ГБ RAM), выберите регион РФ. До подтверждения изучите цену.
+4. Добавьте в интерфейсе Timeweb Cloud **переменные окружения**:
+   - `TILDA_PUBLIC_KEY` — Public Key из Tilda.
+   - `TILDA_SECRET_KEY` — Secret Key из Tilda.
+   - `MCP_ACCESS_TOKEN` — самостоятельно сгенерированный случайный токен длиной не менее 32 символов.
+5. После запуска откройте адрес `https://АДРЕС-ПРИЛОЖЕНИЯ/healthz` — должен появиться `status: ok`.
+6. MCP endpoint будет `https://АДРЕС-ПРИЛОЖЕНИЯ/mcp` и требует `Authorization: Bearer <MCP_ACCESS_TOKEN>`.
+
+### Важно
+
+Это только серверная часть интеграции. Запуск в Timeweb **не подключит его к ChatGPT автоматически**. Для подключения к пользовательскому плагину потребуется совместимый способ аутентификации и проверка поддержки MCP/OAuth в ChatGPT. Токен или ключи никогда не следует публиковать в GitHub или отправлять в чат.
+
+Сервер НЕ редактирует сайты, не меняет их SEO-настройки и не публикует страницы.
