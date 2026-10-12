@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -41,13 +42,17 @@ async def editor_page(project_id: str, page_id: str):
             try:
                 page = await context.new_page()
                 # Compare the browser session to the saved cookie domains without exposing values.
+                saved_cookies = _storage_state()["cookies"]
+                now = time.time()
+                stored_count = len(saved_cookies)
+                expired_count = sum(1 for ck in saved_cookies if isinstance(ck.get("expires"), (int, float)) and ck["expires"] > 0 and ck["expires"] < now)
                 session_cookie_domains = sorted({cookie.get("domain", "") for cookie in await context.cookies()})
                 await page.goto(f"{EDIT_DOMAIN}/page/?pageid={page_id}&projectid={project_id}", wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1500)
                 if not page.url.startswith(EDIT_DOMAIN + "/"):
                     raise RuntimeError(f"Tilda navigation stopped at host={urlparse(page.url).hostname!r}, path={urlparse(page.url).path!r}; query and tokens omitted")
                 if "/404/" in page.url:
-                    raise RuntimeError(f"Tilda editor returned 404; session_cookie_count={len(await context.cookies())}; has_tilda_ru_cookie={any(d.lstrip(chr(46)).endswith(chr(116)+chr(105)+chr(108)+chr(100)+chr(97)+chr(46)+chr(114)+chr(117)) for d in session_cookie_domains)}; authentication may be unavailable on Railway")
+                    raise RuntimeError(f"Tilda editor returned 404; stored_cookie_count={stored_count}; expired_stored_cookies={expired_count}; browser_cookie_count={len(await context.cookies())}; has_tilda_ru_cookie={any(d.lstrip(chr(46)).endswith(chr(116)+chr(105)+chr(108)+chr(100)+chr(97)+chr(46)+chr(114)+chr(117)) for d in session_cookie_domains)}; authentication may be unavailable on Railway")
                 if "/login" in page.url or "signin" in page.url:
                     raise RuntimeError("Tilda login required. Refresh browser session securely.")
                 yield page
