@@ -32,6 +32,26 @@ async def inspect(job):
                 )
                 if not page.url.startswith("https://tilda.ru/page/"):
                     return {"status":"error","reason":"Editor redirected; authorize again locally", "editor_open":False}
+                await page.wait_for_timeout(2000)
+                blocks = []
+                if job["type"] == "blocks":
+                    # Tilda editor content may be inside frames; keep all extraction read-only.
+                    for frame_index, frame in enumerate(page.frames[:12]):
+                        try:
+                            entries = await frame.locator("h1,h2,h3,p,[contenteditable=true]").all()
+                            for node in entries[:70]:
+                                if len(blocks) >= 30:
+                                    break
+                                if not await node.is_visible():
+                                    continue
+                                text_value = " ".join((await node.inner_text(timeout=2000)).split())[:180]
+                                if text_value and text_value not in {b["text"] for b in blocks}:
+                                    blocks.append({"frame":frame_index,"tag":await node.evaluate("(e) => e.tagName.toLowerCase()"),"text":text_value})
+                        except Exception:
+                            continue
+                    return {"status":"ok","page_title":(await page.title())[:200],
+                            "editor_open":True,"frame_count":len(page.frames),
+                            "block_count":len(blocks),"blocks":blocks}
                 return {
                     "status":"ok", "page_title":(await page.title())[:200],
                     "editor_open":True,
@@ -55,7 +75,7 @@ async def main():
                 job = r.json().get("job")
                 if job:
                     try:
-                        result = await inspect(job) if job["type"] == "inspect" else {"status":"rejected","reason":"Unsupported command"}
+                        result = await inspect(job) if job["type"] in ("inspect","blocks") else {"status":"rejected","reason":"Unsupported command"}
                     except Exception as exc:
                         result = {"status":"error","reason":type(exc).__name__}
                     response = await client.post(BASE + "/agent/result",json={"job_id":job["id"],"result":result})
