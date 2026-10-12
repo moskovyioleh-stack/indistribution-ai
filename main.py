@@ -1,15 +1,32 @@
-"""Read-only MCP server for four Tilda Business projects."""
+"""GitHub OAuth, owner-only, read-only MCP connector to four Tilda websites."""
 import os
-import hmac
 import re
 import httpx
 from bs4 import BeautifulSoup
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
+from fastmcp.server.auth import AuthContext
+from fastmcp.server.auth.providers.github import GitHubProvider
 from starlette.responses import JSONResponse
 
 DOMAINS = {"indistribution.ru", "heinedasaw.indistribution.ru", "powders.indistribution.ru", "molot.website"}
 API = "https://api.tildacdn.info/v1"
-mcp = FastMCP("INDISTRIBUTION AI", stateless_http=True, json_response=True)
+BASE_URL = os.environ.get("OAUTH_BASE_URL", "").strip().rstrip("/")
+CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
+ALLOWED_LOGIN = os.environ.get("GITHUB_ALLOWED_LOGIN", "moskovyioleh-stack").strip().lower()
+
+if not (BASE_URL.startswith("https://") and CLIENT_ID and CLIENT_SECRET and ALLOWED_LOGIN):
+    raise RuntimeError("GitHub OAuth configuration is missing; refusing to start an unprotected MCP server")
+
+auth = GitHubProvider(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, base_url=BASE_URL)
+mcp = FastMCP("INDISTRIBUTION AI", auth=auth)
+
+def owner_only(ctx: AuthContext) -> bool:
+    """Deny data access if GitHub identity cannot be verified as the expected owner."""
+    if not ctx.token:
+        return False
+    claims = ctx.token.claims or {}
+    return str(claims.get("login", "")).lower() == ALLOWED_LOGIN
 
 async def tilda(method, **kwargs):
     if method not in {"getprojectslist", "getprojectinfo", "getpageslist", "getpagefull"}:
@@ -39,12 +56,12 @@ async def projects():
 async def allowed_project(project_id):
     return next((p for p in await projects() if p["id"] == str(project_id)), None)
 
-@mcp.tool()
+@mcp.tool(auth=owner_only)
 async def list_projects() -> dict:
     """List the approved four Tilda sites and project IDs."""
     return {"projects": await projects()}
 
-@mcp.tool()
+@mcp.tool(auth=owner_only)
 async def list_pages(project_id: str) -> dict:
     """List pages in an approved project (project_id from list_projects)."""
     project = await allowed_project(project_id)
@@ -53,7 +70,7 @@ async def list_pages(project_id: str) -> dict:
     pages = await tilda("getpageslist", projectid=project_id)
     return {"project": project, "pages": [{"id": str(p.get("id")), "title": p.get("title"), "alias": p.get("alias"), "published": p.get("published")} for p in pages]}
 
-@mcp.tool()
+@mcp.tool(auth=owner_only)
 async def audit_page(project_id: str, page_id: str) -> dict:
     """Read HTML of one project page; return SEO observations. Never changes pages."""
     project = await allowed_project(project_id)
@@ -80,21 +97,9 @@ async def audit_page(project_id: str, page_id: str) -> dict:
         "note": "Static HTML audit only; browser rendering and indexation require other checks"
     }
 
+
 @mcp.custom_route("/healthz", methods=["GET"])
 async def health(request):
     return JSONResponse({"status": "ok", "service": "indistribution-ai", "read_only": True})
 
-class BearerGuard:
-    def __init__(self, app):
-        self.app = app
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("path", "").startswith("/mcp"):
-            token = os.getenv("MCP_ACCESS_TOKEN", "")
-            headers = dict(scope.get("headers", []))
-            provided = headers.get(b"authorization", b"").decode("utf8", "ignore")
-            if len(token) < 32 or not hmac.compare_digest(provided, "Bearer " + token):
-                await JSONResponse({"error": "Unauthorized"}, status_code=401)(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
-
-app = BearerGuard(mcp.streamable_http_app())
+app = mcp.http_app(path="/mcp", stateless_http=True)
