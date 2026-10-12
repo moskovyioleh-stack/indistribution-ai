@@ -102,4 +102,7 @@ async def audit_page(project_id: str, page_id: str) -> dict:
 async def health(request):
     return JSONResponse({"status": "ok", "service": "indistribution-ai", "read_only": True})
 
+from tilda_editor import register_editor_tools
+register_editor_tools(mcp, owner_only, allowed_project, tilda)
+
 app = mcp.http_app(path="/mcp", stateless_http=True)
