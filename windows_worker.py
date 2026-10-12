@@ -49,9 +49,31 @@ async def inspect(job):
                                     blocks.append({"frame":frame_index,"tag":await node.evaluate("(e) => e.tagName.toLowerCase()"),"text":text_value})
                         except Exception:
                             continue
+                    # Counts are diagnostics, not page data. No cookie, URL query, HTML or secrets.
+                    counts = {}
+                    selectors = {
+                        "body": "body", "record_nodes": "[data-record-type],.record,.t-rec",
+                        "tilda_blocks": "[id^=rec],[class*=block],[class*=record]",
+                        "iframes": "iframe", "editable": "[contenteditable=true]",
+                        "buttons": "button", "text_nodes": "h1,h2,h3,p",
+                        "loading": "[class*=loading],[class*=spinner]"
+                    }
+                    for label, selector in selectors.items():
+                        try:
+                            counts[label] = await page.locator(selector).count()
+                        except Exception:
+                            counts[label] = -1
+                    try:
+                        body_text_length = len(await page.locator("body").inner_text(timeout=3000))
+                    except Exception:
+                        body_text_length = -1
+                    diagnostic = ("dom_counts=" + ",".join(f"{k}:{v}" for k,v in counts.items())
+                                  + f"; body_text_length={body_text_length}"
+                                  + f"; browser_frames={len(page.frames)}")
                     return {"status":"ok","page_title":(await page.title())[:200],
                             "editor_open":True,"frame_count":len(page.frames),
-                            "block_count":len(blocks),"blocks":blocks}
+                            "block_count":len(blocks),"blocks":blocks,
+                            "reason":diagnostic[:700]}
                 return {
                     "status":"ok", "page_title":(await page.title())[:200],
                     "editor_open":True,
