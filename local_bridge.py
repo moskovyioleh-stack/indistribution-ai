@@ -31,6 +31,43 @@ async def _validate_payload(payload, allowed_project, tilda):
 
 def register_bridge(mcp, owner_only, allowed_project, tilda):
     @mcp.tool(auth=owner_only)
+    async def editor_action(action: str, payload: dict) -> dict:
+        """Stable editor command interface. Supported actions: inspect, blocks, result.
+        Read-only by default; unrecognized or write actions are rejected.
+        For inspect/blocks supply project_id and page_id in payload.
+        For result supply job_id. Never publishes a Tilda site.
+        """
+        if action == "result":
+            job_id = str(payload.get("job_id", ""))
+            if not job_id:
+                return {"error": "job_id is required"}
+            async with GUARD:
+                j = JOBS.get(job_id)
+                return ({k:v for k,v in j.items() if k != "created"}
+                        if j else {"error": "Job not found or expired"})
+        if action not in ("inspect", "blocks"):
+            return {"error": "Unsupported editor action", "supported_actions": ["inspect", "blocks", "result"]}
+        if len(os.getenv("LOCAL_AGENT_TOKEN", "").strip()) < 32:
+            return {"error": "Local agent is not configured"}
+        try:
+            project_id, page_id = await _validate_payload(payload, allowed_project, tilda)
+        except (ValueError, KeyError) as exc:
+            return {"error": str(exc)}
+        job_id = secrets.token_urlsafe(18)
+        async with GUARD:
+            now = time.time()
+            for k in list(JOBS):
+                if now - JOBS[k]["created"] > TTL:
+                    del JOBS[k]
+            JOBS[job_id] = {
+                "id": job_id, "created": now, "type": action,
+                "project_id": project_id, "page_id": page_id,
+                "status": "queued", "result": None
+            }
+        return {"job_id": job_id, "status": "queued", "action": action,
+                "note": "Windows worker must be running. Read-only."}
+
+    @mcp.tool(auth=owner_only)
     async def local_editor_request(project_id: str, page_id: str) -> dict:
         """Queue a read-only local Playwright inspection for an approved Tilda page."""
         if not os.getenv("LOCAL_AGENT_TOKEN", "").strip():
