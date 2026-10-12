@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
-EDIT_DOMAIN = "https://tilda.cc"
+EDIT_DOMAIN = "https://tilda.ru"
 # UI selectors may require adjustment after inspecting the actual editor.
 SAVE_LABELS = ("Сохранить", "Save")
 WRITE_LOCK = asyncio.Lock()
@@ -32,7 +32,7 @@ def _storage_state():
 
 
 @asynccontextmanager
-async def editor_page(page_id: str):
+async def editor_page(project_id: str, page_id: str):
     # Tilda editor uses its own first-party host. Never accept arbitrary URLs.
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -40,7 +40,7 @@ async def editor_page(page_id: str):
             context = await browser.new_context(storage_state=_storage_state(), viewport={"width": 1440, "height": 900})
             try:
                 page = await context.new_page()
-                await page.goto(f"{EDIT_DOMAIN}/page/?pageid={page_id}", wait_until="domcontentloaded", timeout=45000)
+                await page.goto(f"{EDIT_DOMAIN}/page/?pageid={page_id}&projectid={project_id}", wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1500)
                 if not page.url.startswith(EDIT_DOMAIN + "/"):
                     raise RuntimeError(f"Tilda navigation stopped at host={urlparse(page.url).hostname!r}, path={urlparse(page.url).path!r}; query and tokens omitted")
@@ -68,7 +68,7 @@ def register_editor_tools(mcp, owner_only, allowed_project, tilda):
         """Inspect an approved page inside the authenticated Tilda editor (no changes)."""
         project = await validate(project_id, page_id)
         async with WRITE_LOCK:
-            async with editor_page(page_id) as page:
+            async with editor_page(project_id, page_id) as page:
                 return {
                     "project": project["domain"], "page_id": page_id,
                     "editor_url": page.url,
@@ -92,7 +92,7 @@ def register_editor_tools(mcp, owner_only, allowed_project, tilda):
             raise ValueError("Text exceeds single-block editing limits")
         project = await validate(project_id, page_id)
         async with WRITE_LOCK:
-            async with editor_page(page_id) as page:
+            async with editor_page(project_id, page_id) as page:
                 target = page.get_by_text(old_text, exact=True)
                 count = await target.count()
                 if count != 1:
