@@ -49,6 +49,24 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         return {"job_id":job_id,"status":"queued","action":"inspect","note":"The Windows worker must be running."}
 
     @mcp.tool(auth=owner_only)
+    async def local_editor_blocks(project_id: str, page_id: str) -> dict:
+        """Queue read-only discovery of visible text blocks in the local Tilda editor."""
+        if not os.getenv("LOCAL_AGENT_TOKEN", "").strip():
+            return {"error": "Local agent is not configured"}
+        await _validate_payload({"project_id": project_id, "page_id": page_id}, allowed_project, tilda)
+        job_id = secrets.token_urlsafe(18)
+        async with GUARD:
+            for k in list(JOBS):
+                if time.time() - JOBS[k]["created"] > TTL:
+                    del JOBS[k]
+            JOBS[job_id] = {
+                "id":job_id, "created":time.time(), "type":"blocks",
+                "project_id":project_id,"page_id":page_id,
+                "status":"queued","result":None
+            }
+        return {"job_id":job_id,"status":"queued","action":"blocks","note":"Read-only; no page changes"}
+
+    @mcp.tool(auth=owner_only)
     async def local_editor_result(job_id: str) -> dict:
         """Check result of an inspection requested via local_editor_request."""
         async with GUARD:
@@ -82,6 +100,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             j = JOBS.get(job_id)
             if not j or j["status"] != "running":
                 return JSONResponse({"error":"job not running"},status_code=409)
-            j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason")}
+            j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count")}
             j["status"] = "complete"
         return JSONResponse({"ok":True})
