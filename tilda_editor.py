@@ -73,6 +73,27 @@ def register_editor_tools(mcp, owner_only, allowed_project, tilda):
         return project
 
     @mcp.tool(auth=owner_only)
+    async def editor_session_status() -> dict:
+        """Report non-secret statistics about the stored Tilda browser session. No navigation or cookie values."""
+        state = _storage_state()
+        cookies = state["cookies"]
+        now = time.time()
+        tilda_cookies = [c for c in cookies if str(c.get("domain", "")).lstrip(".").lower() in {"tilda.ru", "tilda.cc"}]
+        expired = sum(
+            1 for c in cookies
+            if isinstance(c.get("expires"), (int, float)) and 0 < c["expires"] < now
+        )
+        return {
+            "storage_state_configured": True,
+            "stored_cookie_count": len(cookies),
+            "expired_stored_cookies": expired,
+            "has_tilda_ru_cookie": any(str(c.get("domain", "")).lstrip(".").lower() == "tilda.ru" for c in cookies),
+            "has_tilda_cc_cookie": any(str(c.get("domain", "")).lstrip(".").lower() == "tilda.cc" for c in cookies),
+            "stored_origin_count": len(state.get("origins", [])),
+            "note": "No browser navigation performed. Cookie presence does not establish Tilda authorization.",
+        }
+
+    @mcp.tool(auth=owner_only)
     async def editor_inspect(project_id: str, page_id: str) -> dict:
         """Inspect an approved page inside the authenticated Tilda editor (no changes)."""
         project = await validate(project_id, page_id)
