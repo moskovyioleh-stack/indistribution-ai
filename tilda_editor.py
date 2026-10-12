@@ -44,6 +44,8 @@ async def editor_page(project_id: str, page_id: str):
                 await page.wait_for_timeout(1500)
                 if not page.url.startswith(EDIT_DOMAIN + "/"):
                     raise RuntimeError(f"Tilda navigation stopped at host={urlparse(page.url).hostname!r}, path={urlparse(page.url).path!r}; query and tokens omitted")
+                if "/404/" in page.url:
+                    raise RuntimeError("Tilda editor returned a 404 page; check the authenticated session for tilda.ru and editor access")
                 if "/login" in page.url or "signin" in page.url:
                     raise RuntimeError("Tilda login required. Refresh browser session securely.")
                 yield page
