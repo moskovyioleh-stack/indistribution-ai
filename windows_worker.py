@@ -35,18 +35,38 @@ async def inspect(job):
                 await page.wait_for_timeout(2000)
                 blocks = []
                 if job["type"] == "blocks":
-                    # Tilda editor content may be inside frames; keep all extraction read-only.
+                    # Inspect Tilda editor record wrappers, not only rendered h1/p tags.
+                    # Return bounded metadata; never send HTML, links, cookies or form values.
                     for frame_index, frame in enumerate(page.frames[:12]):
                         try:
-                            entries = await frame.locator("h1,h2,h3,p,[contenteditable=true]").all()
-                            for node in entries[:70]:
+                            found = await frame.evaluate("""() => {
+                              const nodes = [...document.querySelectorAll(
+                                '[data-record-type],.record,.t-rec,[id^="rec"]'
+                              )];
+                              const out = [];
+                              const seen = new Set();
+                              for (const el of nodes) {
+                                if (out.length >= 30) break;
+                                const rect = el.getBoundingClientRect();
+                                if (rect.width < 1 || rect.height < 1) continue;
+                                const id = (el.getAttribute('data-record-id') || el.id || '').slice(0,80);
+                                const type = (el.getAttribute('data-record-type') ||
+                                  el.getAttribute('data-block-type') || '').slice(0,80);
+                                const raw = (el.innerText || '').replace(/\\s+/g,' ').trim();
+                                const text = raw.slice(0,180);
+                                if (!id && !type && !text) continue;
+                                const key = id + ':' + type + ':' + text.slice(0,60);
+                                if (seen.has(key)) continue;
+                                seen.add(key);
+                                out.push({record_id:id,record_type:type,
+                                  tag:el.tagName.toLowerCase(),text});
+                              }
+                              return out;
+                            }""")
+                            for item in found:
                                 if len(blocks) >= 30:
                                     break
-                                if not await node.is_visible():
-                                    continue
-                                text_value = " ".join((await node.inner_text(timeout=2000)).split())[:180]
-                                if text_value and text_value not in {b["text"] for b in blocks}:
-                                    blocks.append({"frame":frame_index,"tag":await node.evaluate("(e) => e.tagName.toLowerCase()"),"text":text_value})
+                                blocks.append({"frame":frame_index, **item})
                         except Exception:
                             continue
                     # Counts are diagnostics, not page data. No cookie, URL query, HTML or secrets.
