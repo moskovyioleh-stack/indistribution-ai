@@ -105,4 +105,7 @@ async def health(request):
 from tilda_editor import register_editor_tools
 register_editor_tools(mcp, owner_only, allowed_project, tilda)
 
+from local_bridge import register_bridge
+register_bridge(mcp, owner_only, allowed_project, tilda)
+
 app = mcp.http_app(path="/mcp", stateless_http=True)
