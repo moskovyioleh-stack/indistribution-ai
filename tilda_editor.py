@@ -9,6 +9,7 @@ import base64
 import json
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 EDIT_DOMAIN = "https://tilda.cc"
@@ -42,9 +43,9 @@ async def editor_page(page_id: str):
                 await page.goto(f"{EDIT_DOMAIN}/page/?pageid={page_id}", wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1500)
                 if not page.url.startswith(EDIT_DOMAIN + "/"):
-                    raise RuntimeError("Tilda editor redirected to an unexpected host")
+                    raise RuntimeError(f"Tilda navigation stopped at host={urlparse(page.url).hostname!r}, path={urlparse(page.url).path!r}; query and tokens omitted")
                 if "/login" in page.url or "signin" in page.url:
-                    raise RuntimeError("Tilda session expired. Reauthorize securely and update TILDA_STORAGE_STATE_B64")
+                    raise RuntimeError("Tilda login required. Refresh browser session securely.")
                 yield page
             finally:
                 await context.close()
