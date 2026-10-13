@@ -60,7 +60,7 @@ DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete
 def action_catalog():
     return {
         "api_version": "1.0",
-        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects"],
+        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools"],
         "planned_not_implemented": FUTURE_ACTIONS,
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
@@ -104,6 +104,26 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_mcp_tools":
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    inventory = await upstream.list_tools()
+                return {"status": "ok", "tools": [
+                    {"name": tool.name,
+                     "description": (tool.description or "")[:450],
+                     "input_schema": tool.inputSchema}
+                    for tool in inventory
+                ]}
+            except Exception:
+                return {"status": "upstream_error", "message": "Unable to list official Tilda MCP tools"}
         if action == "tilda_mcp_get_projects":
             return await official_tilda_projects()
         if action == "capabilities":
