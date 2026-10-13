@@ -104,6 +104,74 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_save_draft_html":
+            # Store a whole responsive page in T123 HTML block on a NEVER-published page.
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required"}
+            try:
+                pid = int(payload.get("project_id", 0))
+                pageid = int(payload.get("page_id", 0))
+                rid = int(payload.get("record_id", 0))
+                code = payload.get("html", "")
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            if (pid not in {12112685, 23291206, 14178377, 30763609}
+                or min(pageid, rid) <= 0 or not isinstance(code, str)
+                or not (100 <= len(code) <= 150000)):
+                return {"status": "forbidden"}
+            # HTML + CSS allowed; active JS and outside dependencies are excluded.
+            lowered = code.lower()
+            if any(bad in lowered for bad in (
+                "<script", "javascript:", "<iframe", "onerror=", "onload=",
+                "<form", "fetch(", "xmlhttprequest", "document.cookie")):
+                return {"status": "forbidden", "reason": "Active content disallowed"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    pages = await upstream.call_tool("get_pages", {"projectid": pid})
+                    listing = json.loads(next(p.text for p in pages.content if getattr(p, "type", "") == "text"))
+                    if not any(str(p.get("id")) == str(pageid)
+                               and str(p.get("projectid")) == str(pid)
+                               and not p.get("published") and not p.get("trash")
+                               for p in listing):
+                        return {"status": "forbidden", "reason": "Only unpublished pages"}
+                    records = await upstream.call_tool("get_page_records",
+                        {"projectid": pid, "pageid": pageid})
+                    items = json.loads(next(p.text for p in records.content if getattr(p, "type", "") == "text"))
+                    if not any(str(p.get("recordid")) == str(rid)
+                               and str(p.get("tplid")) == "131" for p in items):
+                        return {"status": "forbidden", "reason": "Only T123 HTML block"}
+                    current = await upstream.call_tool("edit_record", {
+                        "projectid": pid, "pageid": pageid,
+                        "recordid": rid, "tab": "content"})
+                    existing = json.loads(next(p.text for p in current.content if getattr(p, "type", "") == "text"))
+                    old = existing.get("record", {}).get("code", "")
+                    if old and payload.get("expected_old_html") != old:
+                        return {"status": "precondition_failed", "reason": "Block has changed"}
+                    saved = await upstream.call_tool("update_record", {
+                        "projectid": pid, "pageid": pageid, "recordid": rid,
+                        "tab": "content", "fields": {"code": code},
+                        "only_field": "code"})
+                    if getattr(saved, "is_error", False):
+                        return {"status": "upstream_error", "stage": "save"}
+                    check = await upstream.call_tool("edit_record", {
+                        "projectid": pid, "pageid": pageid,
+                        "recordid": rid, "tab": "content"})
+                    check_data = json.loads(next(p.text for p in check.content if getattr(p, "type", "") == "text"))
+                    actual = check_data.get("record", {}).get("code", "")
+                    return {"status": "saved_verified" if actual == code else "verification_failed",
+                            "page_id": pageid, "record_id": rid,
+                            "saved_length": len(actual), "published": False}
+            except Exception:
+                return {"status": "upstream_error", "stage": "draft_html"}
         if action == "tilda_template_search":
             from fastmcp import Client
             from fastmcp.client.transports import StreamableHttpTransport
