@@ -34,6 +34,37 @@ async def inspect(job):
                     return {"status":"error","reason":"Editor redirected; authorize again locally", "editor_open":False}
                 await page.wait_for_timeout(2000)
                 blocks = []
+                if job["type"] == "field_probe":
+                    record_id = str(job.get("record_id",""))
+                    if not record_id.isdecimal() or len(record_id) > 15:
+                        return {"status":"rejected","reason":"Invalid record_id"}
+                    # No clicks, edits, form values, HTML, URLs or attributes containing secrets.
+                    probe = await page.evaluate("""(recordId) => {
+                      const parent = document.getElementById('record' + recordId)
+                        || document.getElementById('rec' + recordId);
+                      if (!parent) return {error:'Record not found'};
+                      const nodes = [...parent.querySelectorAll(
+                        '[data-field],[data-tilda-field],[contenteditable],input,textarea,button,[role=button]'
+                      )].slice(0,60);
+                      const fields = nodes.map(el => {
+                        const rect = el.getBoundingClientRect();
+                        return {
+                          tag:el.tagName.toLowerCase(),
+                          field:(el.getAttribute('data-field')||el.getAttribute('data-tilda-field')||'').slice(0,65),
+                          role:(el.getAttribute('role')||'').slice(0,30),
+                          editable:el.getAttribute('contenteditable') === 'true',
+                          visible:rect.width > 0 && rect.height > 0,
+                          label:el.tagName.toLowerCase() === 'button'
+                            ? (el.innerText||'').replace(/\\s+/g,' ').trim().slice(0,70) : ''
+                        };
+                      });
+                      return {fields,record_text:(parent.innerText||'').replace(/\\s+/g,' ').trim().slice(0,240)};
+                    }""", record_id)
+                    if "error" in probe:
+                        return {"status":"error","reason":probe["error"]}
+                    return {"status":"ok","page_title":(await page.title())[:200],
+                            "editor_open":True,"fields":probe["fields"][:60],
+                            "reason":"Read-only field probe; record text: " + probe["record_text"][:240]}
                 if job["type"] == "blocks":
                     # Inspect Tilda editor record wrappers, not only rendered h1/p tags.
                     # Return bounded metadata; never send HTML, links, cookies or form values.
@@ -117,7 +148,7 @@ async def main():
                 job = r.json().get("job")
                 if job:
                     try:
-                        result = await inspect(job) if job["type"] in ("inspect","blocks") else {"status":"rejected","reason":"Unsupported command"}
+                        result = await inspect(job) if job["type"] in ("inspect","blocks","field_probe") else {"status":"rejected","reason":"Unsupported command"}
                     except Exception as exc:
                         result = {"status":"error","reason":type(exc).__name__}
                     response = await client.post(BASE + "/agent/result",json={"job_id":job["id"],"result":result})
