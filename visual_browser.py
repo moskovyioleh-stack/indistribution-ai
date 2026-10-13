@@ -64,7 +64,24 @@ async def _browse(url, device, screenshot=False):
             page.on("pageerror", lambda error: errors.append(str(error)[:250]))
             try:
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=22000)
-                await page.wait_for_timeout(2200)
+                await page.wait_for_timeout(1000)
+                # Trigger lazy image loading by scrolling through the document.
+                await page.evaluate("""async () => {
+                    const height = document.documentElement.scrollHeight;
+                    for (let y = 0; y < height; y += 650) {
+                        window.scrollTo(0, y);
+                        await new Promise(resolve => setTimeout(resolve, 120));
+                    }
+                    window.scrollTo(0, 0);
+                    await Promise.all(Array.from(document.images).map(img =>
+                        img.complete ? Promise.resolve() :
+                        Promise.race([
+                            new Promise(resolve => { img.addEventListener('load', resolve, {once:true});
+                                                     img.addEventListener('error', resolve, {once:true}); }),
+                            new Promise(resolve => setTimeout(resolve, 3000)),
+                        ])
+                    ));
+                }""")
             except Exception as exc:
                 return {"status": "failed", "url": url, "device": device,
                         "error": type(exc).__name__, "detail": str(exc)[:350]}
