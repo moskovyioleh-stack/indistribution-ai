@@ -126,6 +126,35 @@ async def inspect(job):
                                 blocks.append({"frame":frame_index, **item})
                         except Exception:
                             continue
+                    # Reuse the reliable "blocks" operation to inspect FAQ content controls.
+                    # This does not mutate records, click Save or publish.
+                    target_record = page.locator("#record4663666601")
+                    if await target_record.count() == 1:
+                        content_button = target_record.get_by_text("Контент", exact=True)
+                        if await content_button.count() != 1:
+                            content_button = target_record.get_by_text("Content", exact=True)
+                        panel_opened = False
+                        if await content_button.count() == 1 and await content_button.is_visible():
+                            await content_button.click(timeout=5000)
+                            await page.wait_for_timeout(800)
+                            panel_opened = True
+                        try:
+                            editor_fields = await page.evaluate("""() =>
+                              [...document.querySelectorAll('input,textarea,[contenteditable="true"]')]
+                                .filter(e => {const r=e.getBoundingClientRect();
+                                   return r.width>0 && r.height>0 && e.type!=='password';})
+                                .slice(0,40).map(e=>({
+                                    tag:e.tagName.toLowerCase(),
+                                    name:(e.getAttribute('name')||'').slice(0,60),
+                                    placeholder:(e.getAttribute('placeholder')||'').slice(0,65),
+                                    type:(e.getAttribute('type')||'').slice(0,25)
+                                }))
+                            """)
+                        except Exception:
+                            editor_fields = []
+                    else:
+                        panel_opened = False
+                        editor_fields = []
                     # Counts are diagnostics, not page data. No cookie, URL query, HTML or secrets.
                     counts = {}
                     selectors = {
@@ -150,7 +179,8 @@ async def inspect(job):
                     return {"status":"ok","page_title":(await page.title())[:200],
                             "editor_open":True,"frame_count":len(page.frames),
                             "block_count":len(blocks),"blocks":blocks,
-                            "reason":diagnostic[:700]}
+                            "fields":editor_fields,
+                            "reason":(diagnostic + "; FAQ content panel=" + ("opened" if panel_opened else "not_opened"))[:700]}
                 return {
                     "status":"ok", "page_title":(await page.title())[:200],
                     "editor_open":True,
