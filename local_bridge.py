@@ -60,7 +60,7 @@ DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete
 def action_catalog():
     return {
         "api_version": "1.0",
-        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan"],
+        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects"],
         "planned_not_implemented": FUTURE_ACTIONS,
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
@@ -71,6 +71,27 @@ def action_catalog():
             "no_raw_scripts_or_arbitrary_browser_navigation": True,
         },
     }
+
+async def official_tilda_projects():
+    """Query only get_projects using the private Railway secret; never expose it."""
+    from fastmcp import Client
+    token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+    if not token:
+        return {"status": "not_configured"}
+    try:
+        from fastmcp.client.transports import StreamableHttpTransport
+        transport = StreamableHttpTransport(
+            url="https://tilda.ru/api/mcp/",
+            headers={"Authorization": "Bearer " + token},
+        )
+        async with Client(transport) as client:
+            tools = await client.list_tools()
+            if "get_projects" not in [t.name for t in tools]:
+                return {"status": "missing_tool", "tool_names": [t.name for t in tools][:60]}
+            response = await client.call_tool("get_projects", {})
+            return {"status": "ok", "result": str(response)[:10000]}
+    except Exception:
+        return {"status": "upstream_error", "message": "Tilda MCP connection failed; check Railway logs without exposing secrets."}
 
 def register_bridge(mcp, owner_only, allowed_project, tilda):
     @mcp.tool(auth=owner_only)
@@ -83,6 +104,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_mcp_get_projects":
+            return await official_tilda_projects()
         if action == "capabilities":
             return action_catalog()
         if action in DANGEROUS_ACTIONS:
