@@ -104,6 +104,67 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_template_search":
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            query = str(payload.get("query", ""))[:60]
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    result = await upstream.call_tool("tpls_list", {"query": query})
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error"}
+                    parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
+                    return {"status": "ok", "templates": parts[:1]}
+            except Exception:
+                return {"status": "upstream_error"}
+
+        if action == "tilda_remove_draft_block":
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required"}
+            try:
+                pid = int(payload.get("project_id", 0))
+                pageid = int(payload.get("page_id", 0))
+                recordid = int(payload.get("record_id", 0))
+            except (TypeError, ValueError):
+                return {"status": "invalid_request"}
+            if pid not in {12112685, 23291206, 14178377, 30763609}:
+                return {"status": "forbidden"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    pages = await upstream.call_tool("get_pages", {"projectid": pid})
+                    listing = json.loads(next(p.text for p in pages.content if getattr(p, "type", "") == "text"))
+                    if not any(str(p.get("id")) == str(pageid) and
+                               str(p.get("projectid")) == str(pid) and
+                               not p.get("published") and not p.get("trash")
+                               for p in listing):
+                        return {"status": "forbidden", "reason": "Not an unpublished page"}
+                    records = await upstream.call_tool("get_page_records", {"projectid": pid, "pageid": pageid})
+                    items = json.loads(next(p.text for p in records.content if getattr(p, "type", "") == "text"))
+                    if not any(str(p.get("recordid")) == str(recordid) for p in items):
+                        return {"status": "forbidden", "reason": "Record not found"}
+                    result = await upstream.call_tool("delete_record",
+                        {"projectid": pid, "pageid": pageid, "recordid": recordid})
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error"}
+                    return {"status": "removed_from_draft", "response": [
+                        p.text for p in result.content if getattr(p, "type", "") == "text"]}
+            except Exception:
+                return {"status": "upstream_error"}
         if action == "tilda_create_draft_page":
             # Explicitly creates an unpublished page, never publish.
             import json
