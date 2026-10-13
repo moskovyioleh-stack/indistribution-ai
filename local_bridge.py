@@ -110,7 +110,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             required = {
                 "get_projects": (),
                 "get_pages": ("projectid",),
-                "get_page_records": ("pageid",),
+                "get_page_records": ("projectid", "pageid"),
                 "get_page_settings": ("projectid", "pageid"),
             }
             if tool_name not in required:
