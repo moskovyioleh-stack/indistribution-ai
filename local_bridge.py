@@ -449,7 +449,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
                 if method == "update_page_settings":
-                    safe_settings = {"pageid", "projectid", "date", "meta_title",
+                    safe_settings = {"pageid", "projectid", "date", "title", "meta_title",
                                      "meta_descr", "meta_keywords", "link_canonical",
                                      "fb_title", "fb_descr"}
                     if set(args) - safe_settings:
