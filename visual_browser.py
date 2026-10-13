@@ -27,6 +27,14 @@ async def _resolve_url(project_id, page_id, allowed_project, tilda):
     alias = str(match.get("alias") or "").strip("/")
     if not alias:
         alias = str(match.get("url") or "").strip("/")
+    if not alias:
+        # Tilda stores the homepage with an empty alias. Resolve it only
+        # when it is the sole active published content page for the project.
+        live = [p for p in pages if p.get("published") and not p.get("trash")
+                and str(p.get("id")) != "73934705"]
+        if len(live) == 1 and str(live[0].get("id")) == str(page_id):
+            return "https://" + project["domain"] + "/"
+        raise ValueError("Homepage cannot be resolved unambiguously")
     if not VALID_ALIAS.fullmatch(alias) or alias.startswith("/") or ".." in alias:
         raise ValueError("Invalid page path")
     return "https://" + project["domain"] + "/" + alias
