@@ -24,6 +24,13 @@ async def _resolve_url(project_id, page_id, allowed_project, tilda):
     match = next((item for item in pages if str(item.get("id")) == str(page_id)), None)
     if match is None:
         raise ValueError("Page does not belong to project")
+    # Tilda's home page can have empty alias while its internal url points
+    # to page<ID>.html. If it is the only published content page, use root.
+    live = [p for p in pages if p.get("published") and not p.get("trash")
+            and str(p.get("id")) != "73934705"]
+    if (not match.get("alias") and len(live) == 1
+        and str(live[0].get("id")) == str(page_id)):
+        return "https://" + project["domain"] + "/"
     alias = str(match.get("alias") or "").strip("/")
     if not alias:
         alias = str(match.get("url") or "").strip("/")
