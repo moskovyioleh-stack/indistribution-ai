@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from fastmcp import FastMCP
 from fastmcp.server.auth import AuthContext
 from fastmcp.server.auth.providers.github import GitHubProvider
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse\nimport avito_api
 
 DOMAINS = {"indistribution.ru", "heinedasaw.indistribution.ru", "powders.indistribution.ru", "molot.website"}
 API = "https://api.tildacdn.info/v1"
@@ -98,8 +98,64 @@ async def audit_page(project_id: str, page_id: str) -> dict:
     }
 
 
+
+@mcp.tool(auth=owner_only)
+async def avito_status() -> dict:
+    """Check Avito API authentication and return connected account."""
+    return {"configured": True, "account": await avito_api.get_account()}
+
+@mcp.tool(auth=owner_only)
+async def avito_get_account() -> dict:
+    """Return connected Avito account."""
+    return await avito_api.get_account()
+
+@mcp.tool(auth=owner_only)
+async def avito_list_items(status: str = "active", page: int = 1, per_page: int = 100) -> dict:
+    """List Avito advertisements."""
+    return await avito_api.list_items(status=status, page=page, per_page=per_page)
+
+@mcp.tool(auth=owner_only)
+async def avito_list_chats(unread_only: bool = False, limit: int = 100, offset: int = 0) -> dict:
+    """List Avito Messenger chats."""
+    account = await avito_api.get_account()
+    return await avito_api.list_chats(int(account["id"]), unread_only=unread_only, limit=limit, offset=offset)
+
+@mcp.tool(auth=owner_only)
+async def avito_list_messages(chat_id: str, limit: int = 100, offset: int = 0) -> dict:
+    """List messages in an Avito chat."""
+    account = await avito_api.get_account()
+    return await avito_api.list_messages(int(account["id"]), chat_id, limit=limit, offset=offset)
+
+@mcp.tool(auth=owner_only)
+async def avito_send_message(chat_id: str, text: str) -> dict:
+    """Send a text message in Avito Messenger."""
+    if not text.strip():
+        raise ValueError("Message text is empty")
+    account = await avito_api.get_account()
+    return await avito_api.send_message(int(account["id"]), chat_id, text)
+
+@mcp.tool(auth=owner_only)
+async def avito_mark_chat_read(chat_id: str) -> dict:
+    """Mark an Avito chat as read."""
+    account = await avito_api.get_account()
+    return await avito_api.mark_chat_read(int(account["id"]), chat_id)
+
+@mcp.tool(auth=owner_only)
+async def avito_update_price(item_id: int, price: int) -> dict:
+    """Update Avito item price."""
+    if price < 0:
+        raise ValueError("Price must be non-negative")
+    account = await avito_api.get_account()
+    return await avito_api.update_price(int(account["id"]), item_id, price)
+
+@mcp.tool(auth=owner_only)
+async def avito_get_stats(item_ids: list[int], date_from: str, date_to: str) -> dict:
+    """Get Avito listing statistics."""
+    account = await avito_api.get_account()
+    return await avito_api.get_stats(int(account["id"]), item_ids, date_from, date_to)
+
 @mcp.custom_route("/healthz", methods=["GET"])
 async def health(request):
-    return JSONResponse({"status": "ok", "service": "indistribution-ai", "read_only": True})
+    return JSONResponse({"status": "ok", "service": "indistribution-ai", "tilda_read_only": True, "avito_configured": bool(os.getenv("AVITO_CLIENT_ID") and os.getenv("AVITO_CLIENT_SECRET"))})
 
 app = mcp.http_app(path="/mcp", stateless_http=True)
