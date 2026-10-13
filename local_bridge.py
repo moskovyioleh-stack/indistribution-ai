@@ -32,9 +32,9 @@ async def _validate_payload(payload, allowed_project, tilda):
 def register_bridge(mcp, owner_only, allowed_project, tilda):
     @mcp.tool(auth=owner_only)
     async def editor_action(action: str, payload: dict) -> dict:
-        """Stable editor command interface. Supported actions: inspect, blocks, result.
+        """Stable editor command interface. Supported actions: inspect, blocks, field_probe, result.
         Read-only by default; unrecognized or write actions are rejected.
-        For inspect/blocks supply project_id and page_id in payload.
+        For inspect/blocks/field_probe supply project_id and page_id in payload. field_probe also requires record_id.
         For result supply job_id. Never publishes a Tilda site.
         """
         if action == "result":
@@ -45,14 +45,18 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 j = JOBS.get(job_id)
                 return ({k:v for k,v in j.items() if k != "created"}
                         if j else {"error": "Job not found or expired"})
-        if action not in ("inspect", "blocks"):
-            return {"error": "Unsupported editor action", "supported_actions": ["inspect", "blocks", "result"]}
+        if action not in ("inspect", "blocks", "field_probe"):
+            return {"error": "Unsupported editor action", "supported_actions": ["inspect", "blocks", "field_probe", "result"]}
         if len(os.getenv("LOCAL_AGENT_TOKEN", "").strip()) < 32:
             return {"error": "Local agent is not configured"}
         try:
             project_id, page_id = await _validate_payload(payload, allowed_project, tilda)
         except (ValueError, KeyError) as exc:
             return {"error": str(exc)}
+        record_id = str(payload.get("record_id", ""))
+        if action == "field_probe":
+            if not record_id.isdecimal() or len(record_id) > 15:
+                return {"error": "field_probe requires a numeric record_id"}
         job_id = secrets.token_urlsafe(18)
         async with GUARD:
             now = time.time()
@@ -62,6 +66,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             JOBS[job_id] = {
                 "id": job_id, "created": now, "type": action,
                 "project_id": project_id, "page_id": page_id,
+                "record_id": record_id if action == "field_probe" else "",
                 "status": "queued", "result": None
             }
         return {"job_id": job_id, "status": "queued", "action": action,
@@ -121,7 +126,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if j["status"] == "queued":
                     j["status"] = "running"
                     return JSONResponse({"job":{"id":j["id"],"type":j["type"],
-                        "project_id":j["project_id"],"page_id":j["page_id"]}})
+                        "project_id":j["project_id"],"page_id":j["page_id"],
+                        "record_id":j.get("record_id","")}})
         return JSONResponse({"job":None})
 
     @mcp.custom_route("/agent/result",methods=["POST"])
@@ -137,6 +143,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             j = JOBS.get(job_id)
             if not j or j["status"] != "running":
                 return JSONResponse({"error":"job not running"},status_code=409)
-            j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count")}
+            j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count","fields")}
             j["status"] = "complete"
         return JSONResponse({"ok":True})
