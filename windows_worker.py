@@ -130,14 +130,22 @@ async def inspect(job):
                     # This does not mutate records, click Save or publish.
                     target_record = page.locator("#record4663666601")
                     if await target_record.count() == 1:
-                        content_button = target_record.get_by_text("Контент", exact=True)
+                        await target_record.hover(timeout=5000)
+                        await page.wait_for_timeout(250)
+                        # In Tilda the Content control belongs to the hover toolbar and
+                        # may be a sibling of the record, not a descendant of it.
+                        content_button = page.get_by_text("Контент", exact=True)
                         if await content_button.count() != 1:
-                            content_button = target_record.get_by_text("Content", exact=True)
+                            content_button = page.get_by_text("Content", exact=True)
                         panel_opened = False
                         if await content_button.count() == 1 and await content_button.is_visible():
                             await content_button.click(timeout=5000)
                             await page.wait_for_timeout(800)
                             panel_opened = True
+                            cards_header = page.get_by_text("КАРТОЧКИ", exact=True)
+                            if await cards_header.count() == 1 and await cards_header.is_visible():
+                                await cards_header.click(timeout=5000)
+                                await page.wait_for_timeout(400)
                         try:
                             editor_fields = await page.evaluate("""() =>
                               [...document.querySelectorAll('input,textarea,[contenteditable="true"]')]
