@@ -77,3 +77,39 @@ async def get_stats(user_id: int, item_ids: list[int], date_from: str, date_to: 
     return await request("POST", f"/stats/v1/accounts/{user_id}/items", json={
         "dateFrom": date_from, "dateTo": date_to, "itemIds": item_ids
     })
+
+
+async def get_item(user_id: int, item_id: int):
+    return await request("GET", f"/core/v1/accounts/{user_id}/items/{item_id}/")
+
+async def archive_item(user_id: int, item_id: int):
+    return await request("DELETE", f"/core/v1/accounts/{user_id}/items/{item_id}/")
+
+async def get_shallow_stats(user_id: int):
+    return await request("GET", f"/stats/v1/accounts/{user_id}/items/shallow")
+
+async def autoload_reports(user_id: int, page: int = 1, per_page: int = 100):
+    candidates = [
+        f"/autoload/v4/accounts/{user_id}/reports",
+        f"/autoload/v1/accounts/{user_id}/reports/",
+    ]
+    last = None
+    for path in candidates:
+        try:
+            return await request("GET", path, params={"page": page, "per_page": per_page})
+        except RuntimeError as exc:
+            last = exc
+    raise last
+
+async def autoload_last_report(user_id: int):
+    candidates = [
+        f"/autoload/v4/accounts/{user_id}/reports/last_report",
+        f"/autoload/v1/accounts/{user_id}/reports/last_report/",
+    ]
+    last = None
+    for path in candidates:
+        try:
+            return await request("GET", path)
+        except RuntimeError as exc:
+            last = exc
+    raise last
