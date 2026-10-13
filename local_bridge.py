@@ -60,7 +60,7 @@ DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete
 def action_catalog():
     return {
         "api_version": "1.0",
-        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools", "tilda_mcp_read"],
+        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools", "tilda_mcp_read", "tilda_page_structure"],
         "planned_not_implemented": FUTURE_ACTIONS,
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
@@ -104,6 +104,49 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_page_structure":
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            try:
+                project_id = int(payload.get("project_id", 0))
+                page_id = int(payload.get("page_id", 0))
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            if project_id not in {12112685, 23291206, 14178377, 30763609} or page_id <= 0:
+                return {"status": "forbidden"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    pages = await upstream.call_tool("get_pages", {"projectid": project_id})
+                    if getattr(pages, "is_error", False):
+                        return {"status": "upstream_error", "stage": "pages"}
+                    parts = [p.text for p in pages.content if getattr(p, "type", "") == "text"]
+                    listing = json.loads(parts[0]) if len(parts) == 1 else []
+                    if not isinstance(listing, list) or not any(
+                        isinstance(p, dict) and str(p.get("id")) == str(page_id)
+                        and str(p.get("projectid")) == str(project_id) and not p.get("trash")
+                        for p in listing
+                    ):
+                        return {"status": "forbidden", "reason": "Page not in project"}
+                    records = await upstream.call_tool(
+                        "get_page_records", {"projectid": project_id, "pageid": page_id}
+                    )
+                    if getattr(records, "is_error", False):
+                        return {"status": "upstream_error", "stage": "records"}
+                    items = [p.text for p in records.content if getattr(p, "type", "") == "text"]
+                    data = json.loads(items[0]) if len(items) == 1 else None
+                    if not isinstance(data, (list, dict)):
+                        return {"status": "invalid_upstream_response"}
+                    return {"status": "ok", "project_id": project_id, "page_id": page_id,
+                            "records": data}
+            except Exception:
+                return {"status": "upstream_error", "message": "Cannot read page structure"}
         if action == "tilda_mcp_read":
             # Fixed method allowlist: do not forward arbitrary MCP tool names.
             tool_name = str(payload.get("tool", ""))
