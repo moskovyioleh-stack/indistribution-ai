@@ -151,9 +151,23 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     headers={"Authorization": "Bearer " + token},
                 )) as upstream:
                     if tool_name == "get_page_records":
+                        import json
                         pages_result = await upstream.call_tool("get_pages", {"projectid": project_id})
-                        # Membership check is fail-closed until structured page parsing is implemented.
-                        return {"status": "needs_validation", "message": "Page membership parsing not implemented yet; no records exposed"}
+                        if getattr(pages_result, "is_error", False):
+                            return {"status": "upstream_error", "message": "Failed to verify page membership"}
+                        page_parts = [p.text for p in pages_result.content if getattr(p, "type", "") == "text"]
+                        try:
+                            page_items = json.loads(page_parts[0]) if len(page_parts) == 1 else []
+                        except (ValueError, TypeError):
+                            return {"status": "validation_error", "message": "Cannot parse Tilda page list"}
+                        if not isinstance(page_items, list) or not any(
+                            isinstance(item, dict)
+                            and str(item.get("id")) == str(page_id)
+                            and str(item.get("projectid")) == str(project_id)
+                            and not item.get("trash")
+                            for item in page_items
+                        ):
+                            return {"status": "forbidden", "message": "Page is not an active page in approved project"}
                     upstream_args = {k: v for k, v in args.items() if k in required[tool_name]}
                     response = await upstream.call_tool(tool_name, upstream_args)
                     return {"status": "ok", "tool": tool_name, "result": str(response)[:14000]}
