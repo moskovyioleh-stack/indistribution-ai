@@ -104,6 +104,131 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_call":
+            # Stable, scoped gateway for official Tilda MCP, without one Railway
+            # function per upstream tool. Mutations require explicit draft consent.
+            import json
+            import re
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            method = str(payload.get("tool", ""))
+            args = payload.get("arguments", {})
+            if not isinstance(args, dict) or not isinstance(method, str):
+                return {"status": "invalid_request"}
+            project_ids = {12112685, 23291206, 14178377, 30763609}
+            write_methods = {
+                "update_record", "add_record", "update_page_settings",
+                "save_project_fonts", "update_project_css_code",
+                "update_page_head_code", "update_project_head_code",
+            }
+            read_methods = {
+                "get_projects", "get_pages", "get_page_records", "edit_record",
+                "get_page_settings", "get_record_html", "get_head_code",
+                "get_project_css_code", "get_robots_txt", "get_favicons",
+                "get_https_www_redirect_settings", "get_form_integrations",
+            }
+            # No dynamic write whitelist: Tilda may add publishing methods later.
+            if method not in (read_methods | write_methods):
+                return {"status": "forbidden", "reason": "Method not allowlisted", "tool": method}
+            is_write = method in write_methods
+            if is_write and payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required", "confirmation": "SAVE_DRAFT_ONLY"}
+            if method != "get_projects":
+                try:
+                    pid = int(args["projectid"])
+                except (KeyError, ValueError, TypeError):
+                    return {"status": "invalid_request", "reason": "projectid required"}
+                if pid not in project_ids:
+                    return {"status": "forbidden", "reason": "Project not approved"}
+            page_methods = {
+                "get_page_records", "edit_record", "get_page_settings",
+                "get_record_html", "update_record", "add_record",
+                "update_page_settings", "update_page_head_code",
+            }
+            if method in page_methods:
+                try:
+                    pageid = int(args["pageid"])
+                except (KeyError, ValueError, TypeError):
+                    return {"status": "invalid_request", "reason": "pageid required"}
+                if pageid <= 0:
+                    return {"status": "invalid_request"}
+            if is_write:
+                if method == "update_record":
+                    if (args.get("tab") not in ("content", "settings")
+                        or not isinstance(args.get("fields"), dict)
+                        or not isinstance(args.get("recordid"), int)):
+                        return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
+                    if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
+                        return {"status": "invalid_request", "reason": "Single-field updates only"}
+                if method == "update_page_settings":
+                    safe_settings = {"pageid", "projectid", "date", "meta_title",
+                                     "meta_descr", "meta_keywords", "link_canonical",
+                                     "fb_title", "fb_descr"}
+                    if set(args) - safe_settings:
+                        return {"status": "forbidden", "reason": "Only safe SEO fields are permitted"}
+                if method in {"update_project_head_code", "update_page_head_code", "update_project_css_code"}:
+                    return {"status": "forbidden", "reason": "Custom executable code/CSS edits require separate security review"}
+                if method == "add_record":
+                    return {"status": "not_enabled", "reason": "Block insertion requires verified template/position schema"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    if method in page_methods:
+                        pages_result = await upstream.call_tool("get_pages", {"projectid": pid})
+                        if getattr(pages_result, "is_error", False):
+                            return {"status": "upstream_error", "stage": "get_pages"}
+                        parts = [p.text for p in pages_result.content
+                                 if getattr(p, "type", "") == "text"]
+                        page_list = json.loads(parts[0]) if len(parts) == 1 else []
+                        if not isinstance(page_list, list) or not any(
+                            isinstance(p, dict) and str(p.get("id")) == str(pageid)
+                            and str(p.get("projectid")) == str(pid) and not p.get("trash")
+                            for p in page_list
+                        ):
+                            return {"status": "forbidden", "reason": "Page not approved"}
+                    if method == "update_record":
+                        records = await upstream.call_tool(
+                            "get_page_records", {"projectid": pid, "pageid": pageid})
+                        pieces = [p.text for p in records.content
+                                  if getattr(p, "type", "") == "text"]
+                        record_list = json.loads(pieces[0]) if len(pieces) == 1 else []
+                        if not isinstance(record_list, list) or not any(
+                            isinstance(r, dict)
+                            and str(r.get("recordid")) == str(args["recordid"])
+                            for r in record_list
+                        ):
+                            return {"status": "forbidden", "reason": "Record not approved"}
+                        if not payload.get("expected_old_value"):
+                            return {"status": "precondition_required",
+                                    "reason": "Provide expected_old_value for a targeted field"}
+                        current = await upstream.call_tool("edit_record", {
+                            "projectid": pid, "pageid": pageid,
+                            "recordid": args["recordid"], "tab": args["tab"]})
+                        # Avoid mutating on an unknown editor response structure.
+                        current_texts = [p.text for p in current.content if getattr(p, "type", "") == "text"]
+                        try:
+                            parsed = json.loads(current_texts[0])
+                        except (ValueError, IndexError, TypeError):
+                            return {"status": "precondition_failed", "reason": "Unable to parse current block fields"}
+                        expected = payload["expected_old_value"]
+                        field = args["only_field"]
+                        if not isinstance(parsed, dict) or parsed.get(field) != expected:
+                            return {"status": "precondition_failed",
+                                    "reason": "Old value does not match or field is not top-level; no changes"}
+                    result = await upstream.call_tool(method, args)
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error", "stage": method}
+                    parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
+                    # Do not label a successful API response as published.
+                    return {"status": "upstream_accepted", "tool": method,
+                            "published_by_agent": False, "response": parts[:4]}
+            except Exception:
+                return {"status": "upstream_error", "message": "Official Tilda MCP request failed"}
         if action == "tilda_record_fields":
             import json
             from fastmcp import Client
