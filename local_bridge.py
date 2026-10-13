@@ -117,9 +117,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "add_record", "update_page_settings",
-                "save_project_fonts", "update_project_css_code",
-                "update_page_head_code", "update_project_head_code",
+                "update_record", "update_page_settings",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -166,10 +164,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                      "fb_title", "fb_descr"}
                     if set(args) - safe_settings:
                         return {"status": "forbidden", "reason": "Only safe SEO fields are permitted"}
-                if method in {"update_project_head_code", "update_page_head_code", "update_project_css_code"}:
-                    return {"status": "forbidden", "reason": "Custom executable code/CSS edits require separate security review"}
-                if method == "add_record":
-                    return {"status": "not_enabled", "reason": "Block insertion requires verified template/position schema"}
             token = os.getenv("TILDA_MCP_TOKEN", "").strip()
             if not token:
                 return {"status": "not_configured"}
