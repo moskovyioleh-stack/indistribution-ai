@@ -156,7 +156,7 @@ async def avito_get_stats(item_ids: list[int], date_from: str, date_to: str) -> 
     return await avito_api.get_stats(int(account["id"]), item_ids, date_from, date_to)
 
 
-@mcp.custom_route("/avito-health", methods=["GET"])
+@mcp.custom_route("/avito-health", methods=["GET", "POST"])
 async def avito_health(request):
     """Read-only Avito connectivity check; returns no credentials."""
     try:
