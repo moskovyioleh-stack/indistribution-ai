@@ -60,7 +60,7 @@ DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete
 def action_catalog():
     return {
         "api_version": "1.0",
-        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools"],
+        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools", "tilda_mcp_read"],
         "planned_not_implemented": FUTURE_ACTIONS,
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
@@ -104,6 +104,61 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_mcp_read":
+            # Fixed method allowlist: do not forward arbitrary MCP tool names.
+            tool_name = str(payload.get("tool", ""))
+            required = {
+                "get_projects": (),
+                "get_pages": ("projectid",),
+                "get_page_records": ("pageid",),
+                "get_page_settings": ("projectid", "pageid"),
+            }
+            if tool_name not in required:
+                return {"status": "forbidden", "message": "Read method is not allowlisted"}
+            args = payload.get("arguments", {})
+            if not isinstance(args, dict):
+                return {"error": "arguments must be an object"}
+            if any(k not in args for k in required[tool_name]):
+                return {"error": "Required argument missing"}
+            permitted = {12112685, 23291206, 14178377, 30763609}
+            if tool_name != "get_projects":
+                if "projectid" in args:
+                    try:
+                        if int(args["projectid"]) not in permitted:
+                            return {"status": "forbidden", "message": "Project not allowlisted"}
+                    except (ValueError, TypeError):
+                        return {"error": "Invalid projectid"}
+                elif tool_name == "get_page_records":
+                    # Page ownership cannot be verified without a project ID.
+                    return {"error": "For get_page_records include projectid for access validation"}
+            if tool_name == "get_page_records":
+                try:
+                    project_id = int(args["projectid"])
+                    page_id = int(args["pageid"])
+                except (ValueError, TypeError, KeyError):
+                    return {"error": "Invalid page or project ID"}
+                if project_id not in permitted:
+                    return {"status": "forbidden"}
+                # Resolve page membership via the upstream get_pages before reading.
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    if tool_name == "get_page_records":
+                        pages_result = await upstream.call_tool("get_pages", {"projectid": project_id})
+                        # Membership check is fail-closed until structured page parsing is implemented.
+                        return {"status": "needs_validation", "message": "Page membership parsing not implemented yet; no records exposed"}
+                    upstream_args = {k: v for k, v in args.items() if k in required[tool_name]}
+                    response = await upstream.call_tool(tool_name, upstream_args)
+                    return {"status": "ok", "tool": tool_name, "result": str(response)[:14000]}
+            except Exception:
+                return {"status": "upstream_error", "message": "Official Tilda MCP read request failed"}
         if action == "tilda_mcp_tools":
             from fastmcp import Client
             from fastmcp.client.transports import StreamableHttpTransport
