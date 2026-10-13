@@ -104,6 +104,78 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_create_draft_page":
+            # Explicitly creates an unpublished page, never publish.
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required"}
+            try:
+                pid = int(payload.get("project_id", 0))
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            if pid not in {12112685, 23291206, 14178377, 30763609}:
+                return {"status": "forbidden"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    result = await upstream.call_tool("add_blank_page", {"projectid": pid})
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error", "stage": "create_page"}
+                    parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
+                    return {"status": "created_unpublished", "project_id": pid,
+                            "response": parts[:2], "published": False}
+            except Exception:
+                return {"status": "upstream_error", "stage": "create_page"}
+
+        if action == "tilda_add_draft_block":
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required"}
+            try:
+                pid = int(payload.get("project_id", 0))
+                pageid = int(payload.get("page_id", 0))
+                tplid = int(payload.get("tplid", 0))
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            if pid not in {12112685, 23291206, 14178377, 30763609} or min(pageid, tplid) <= 0:
+                return {"status": "forbidden"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    pages = await upstream.call_tool("get_pages", {"projectid": pid})
+                    if getattr(pages, "is_error", False):
+                        return {"status": "upstream_error", "stage": "pages"}
+                    listings = [p.text for p in pages.content if getattr(p, "type", "") == "text"]
+                    data = json.loads(listings[0]) if len(listings) == 1 else []
+                    if not isinstance(data, list) or not any(
+                        isinstance(p, dict) and str(p.get("id")) == str(pageid)
+                        and str(p.get("projectid")) == str(pid)
+                        and not p.get("trash") and not p.get("published")
+                        for p in data
+                    ):
+                        return {"status": "forbidden", "reason": "Only unpublished pages may receive new blocks"}
+                    result = await upstream.call_tool("add_record", {
+                        "projectid": pid, "pageid": pageid, "tplid": tplid})
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error", "stage": "add_record"}
+                    parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
+                    return {"status": "block_added", "response": parts[:2], "published": False}
+            except Exception:
+                return {"status": "upstream_error", "stage": "add_record"}
         if action == "tilda_call":
             # Stable, scoped gateway for official Tilda MCP, without one Railway
             # function per upstream tool. Mutations require explicit draft consent.
