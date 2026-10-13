@@ -104,6 +104,45 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_upload_assets":
+            # File bytes come from user's connected Drive and are only sent to Tilda.
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            try:
+                pid = int(payload.get("project_id", 0))
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            files = payload.get("images", [])
+            if (pid not in {12112685, 23291206, 14178377, 30763609}
+                or not isinstance(files, list) or not 1 <= len(files) <= 8):
+                return {"status": "forbidden"}
+            for f in files:
+                if (not isinstance(f, dict) or
+                    not isinstance(f.get("image_base64"), str) or
+                    len(f["image_base64"]) > 10000000 or
+                    f.get("mimetype") not in ("image/jpeg", "image/png", "image/webp") or
+                    not isinstance(f.get("filename"), str)):
+                    return {"status": "invalid_request"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    details = await upstream.call_tool("describe_tool", {"tool_name": "upload_image"})
+                    if getattr(details, "is_error", False):
+                        return {"status": "upstream_error", "stage": "description"}
+                    result = await upstream.call_tool("upload_image", {"projectid": pid, "images": files})
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error", "stage": "upload",
+                                "response": [p.text[:800] for p in result.content
+                                             if getattr(p, "type", "") == "text"]}
+                    return {"status": "uploaded", "response": [
+                        p.text[:12000] for p in result.content if getattr(p, "type", "") == "text"]}
+            except Exception:
+                return {"status": "upstream_error", "stage": "upload"}
         if action == "tilda_save_draft_html":
             # Store a whole responsive page in T123 HTML block on a NEVER-published page.
             import json
