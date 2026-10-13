@@ -211,9 +211,35 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             return {"status": "precondition_failed", "reason": "Unable to parse current block fields"}
                         expected = payload["expected_old_value"]
                         field = args["only_field"]
-                        if not isinstance(parsed, dict) or parsed.get(field) != expected:
+                        record = parsed.get("record") if isinstance(parsed, dict) else None
+                        if (not isinstance(record, dict) or field not in record
+                            or record[field] != expected):
                             return {"status": "precondition_failed",
-                                    "reason": "Old value does not match or field is not top-level; no changes"}
+                                    "reason": "Expected field value differs; no changes"}
+                        # For list-backed cards, require preserved structure and a
+                        # single textual change. A list field is the entire array.
+                        if field == "list":
+                            try:
+                                before = json.loads(expected)
+                                after = json.loads(args["fields"][field])
+                            except (ValueError, TypeError):
+                                return {"status": "invalid_request", "reason": "Invalid list JSON"}
+                            if (not isinstance(before, list) or not isinstance(after, list)
+                                or len(before) != len(after)):
+                                return {"status": "forbidden", "reason": "List structure changed"}
+                            deltas = 0
+                            for before_item, after_item in zip(before, after):
+                                if (not isinstance(before_item, dict)
+                                    or not isinstance(after_item, dict)
+                                    or set(before_item) != set(after_item)):
+                                    return {"status": "forbidden", "reason": "List keys changed"}
+                                for item_key in before_item:
+                                    if before_item[item_key] != after_item[item_key]:
+                                        if item_key not in {"li_title", "li_descr", "li_img", "li_imgalt"}:
+                                            return {"status": "forbidden", "reason": "Protected list metadata changed"}
+                                        deltas += 1
+                            if deltas != 1:
+                                return {"status": "forbidden", "reason": "Exactly one card field may change"}
                     result = await upstream.call_tool(method, args)
                     if getattr(result, "is_error", False):
                         return {"status": "upstream_error", "stage": method}
