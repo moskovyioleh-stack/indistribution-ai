@@ -156,6 +156,78 @@ async def avito_get_stats(item_ids: list[int], date_from: str, date_to: str) -> 
     return await avito_api.get_stats(int(account["id"]), item_ids, date_from, date_to)
 
 
+
+@mcp.tool(auth=owner_only)
+async def avito_get_item(item_id: int) -> dict:
+    """Get one Avito advertisement."""
+    account = await avito_api.get_account()
+    return await avito_api.get_item(int(account["id"]), item_id)
+
+@mcp.tool(auth=owner_only)
+async def avito_archive_item(item_id: int) -> dict:
+    """Archive an Avito advertisement."""
+    account = await avito_api.get_account()
+    return await avito_api.archive_item(int(account["id"]), item_id)
+
+@mcp.tool(auth=owner_only)
+async def avito_get_shallow_stats() -> dict:
+    """Get lightweight Avito statistics."""
+    account = await avito_api.get_account()
+    return await avito_api.get_shallow_stats(int(account["id"]))
+
+@mcp.tool(auth=owner_only)
+async def avito_autoload_reports(page: int = 1, per_page: int = 100) -> dict:
+    """Get Avito autoload reports."""
+    account = await avito_api.get_account()
+    return await avito_api.autoload_reports(int(account["id"]), page, per_page)
+
+@mcp.tool(auth=owner_only)
+async def avito_autoload_last_report() -> dict:
+    """Get latest Avito autoload report."""
+    account = await avito_api.get_account()
+    return await avito_api.autoload_last_report(int(account["id"]))
+
+@mcp.tool(auth=owner_only)
+async def avito_generate_powder_listing(
+    alloy: str,
+    fraction: str,
+    application: str,
+    manufacturer: str = "TIJO",
+    in_stock: bool = True,
+) -> dict:
+    """Generate an Avito draft for a powder product. Does not publish."""
+    stock = "В наличии." if in_stock else "Под заказ."
+    title = f"Металлический порошок {alloy} {fraction}".strip()[:50].rstrip()
+    description = (
+        f"{stock} Металлический порошок {alloy}, фракция {fraction}. "
+        f"Применение: {application}. Производитель: {manufacturer}. "
+        "Компания «Промдистрибуция» поставляет порошки для 3D-печати, "
+        "лазерной наплавки, HVOF/HVAF, плазменного и газопламенного напыления, "
+        "MIM/MBJ, HIP, порошковой металлургии и пайки. "
+        "Напишите марку, фракцию, технологию и объем - подготовим технические данные и предложение."
+    )
+    return {"title": title, "description": description, "draft_only": True}
+
+@mcp.tool(auth=owner_only)
+async def avito_optimize_listing(title: str, description: str, application: str = "") -> dict:
+    """Analyze a powder listing and suggest conversion improvements."""
+    text = f"{title} {description}".lower()
+    issues = []
+    if "в наличии" not in text:
+        issues.append("Добавить наличие в первые строки")
+    if "мкм" not in text and "фракц" not in text:
+        issues.append("Добавить фракционный состав")
+    if not any(k in text for k in ["slm","dmls","hvof","hvaf","наплав","напыл","mim","mbj","hip","припо"]):
+        issues.append("Указать технологию применения")
+    if "напишите" not in text and "сообщен" not in text:
+        issues.append("Добавить конкретный CTA")
+    return {
+        "score": max(0, 100 - 20 * len(issues)),
+        "issues": issues,
+        "recommended_cta": "Напишите марку материала, фракцию, технологию применения и требуемый объем.",
+        "application": application,
+    }
+
 @mcp.custom_route("/avito-health", methods=["GET", "POST"])
 async def avito_health(request):
     """Read-only Avito connectivity check; returns no credentials."""
