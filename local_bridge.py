@@ -450,6 +450,20 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             "published_by_agent": False, "response": parts[:4]}
             except Exception:
                 return {"status": "upstream_error", "message": "Official Tilda MCP request failed"}
+        if action == "browser_audit":
+            from visual_browser import _resolve_url, _browse
+            try:
+                url = await _resolve_url(
+                    str(payload.get("project_id", "")),
+                    str(payload.get("page_id", "")),
+                    allowed_project, tilda,
+                )
+                device = str(payload.get("device", "desktop"))
+                return await asyncio.wait_for(_browse(url, device), timeout=45)
+            except ValueError as exc:
+                return {"status": "forbidden", "reason": str(exc)}
+            except Exception as exc:
+                return {"status": "failed", "error": type(exc).__name__}
         if action == "tilda_record_fields":
             import json
             from fastmcp import Client
