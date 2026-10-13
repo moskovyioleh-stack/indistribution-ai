@@ -161,7 +161,8 @@ async def avito_health(request):
     """Read-only Avito connectivity check; returns no credentials."""
     try:
         account = await avito_api.get_account()
-        print(f"AVITO_ACCOUNT_OK id={account.get(\"id\")}", flush=True)\n        return JSONResponse({"status": "ok", "avito": True, "account_id": account.get("id")})
+        print("AVITO_ACCOUNT_OK", flush=True)
+        return JSONResponse({"status": "ok", "avito": True, "account_id": account.get("id")})
     except Exception as exc:
         return JSONResponse({"status": "error", "avito": False, "detail": str(exc)[:500]}, status_code=502)
 
