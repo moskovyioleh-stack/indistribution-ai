@@ -154,6 +154,16 @@ async def avito_get_stats(item_ids: list[int], date_from: str, date_to: str) -> 
     account = await avito_api.get_account()
     return await avito_api.get_stats(int(account["id"]), item_ids, date_from, date_to)
 
+
+@mcp.custom_route("/avito-health", methods=["GET"])
+async def avito_health(request):
+    """Read-only Avito connectivity check; returns no credentials."""
+    try:
+        account = await avito_api.get_account()
+        return JSONResponse({"status": "ok", "avito": True, "account_id": account.get("id")})
+    except Exception as exc:
+        return JSONResponse({"status": "error", "avito": False, "detail": str(exc)[:500]}, status_code=502)
+
 @mcp.custom_route("/healthz", methods=["GET"])
 async def health(request):
     return JSONResponse({"status": "ok", "service": "indistribution-ai", "tilda_read_only": True, "avito_configured": bool(os.getenv("AVITO_CLIENT_ID") and os.getenv("AVITO_CLIENT_SECRET"))})
