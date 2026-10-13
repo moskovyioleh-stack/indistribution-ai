@@ -133,4 +133,7 @@ register_editor_tools(mcp, owner_only, allowed_project, tilda)
 from local_bridge import register_bridge
 register_bridge(mcp, owner_only, allowed_project, tilda)
 
+from visual_browser import register_browser_tools
+register_browser_tools(mcp, owner_only, allowed_project, tilda)
+
 app = mcp.http_app(path="/mcp", stateless_http=True)
