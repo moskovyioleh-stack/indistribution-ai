@@ -104,6 +104,56 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_swap_image_urls":
+            import json
+            import re
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
+                return {"status": "confirmation_required"}
+            if str(payload.get("project_id")) != "14178377" or str(payload.get("page_id")) != "302584509" or str(payload.get("record_id")) != "4740715501":
+                return {"status": "forbidden"}
+            mapping = {
+                "19mNIqTxCHWQnUm0rm1FMUp7G87JWX7C5": "https://static.tildacdn.com/tild3233-6536-4438-b834-323439663366/0wywu.jpg",
+                "1fnOg2rxpTAXs-r_FQlAZ0ihWMc3Dpolr": "https://static.tildacdn.com/tild6630-3934-4638-b639-366230363163/S8ZsX.jpg",
+                "1qIOuGQ3ws4Qf8rT3yymtF1eawZX9nb7A": "https://static.tildacdn.com/tild3334-3639-4530-b736-663835323538/KJ7kl.jpg",
+            }
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            args = {"projectid": 14178377, "pageid": 302584509,
+                    "recordid": 4740715501, "tab": "content"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    current = await upstream.call_tool("edit_record", args)
+                    obj = json.loads(next(p.text for p in current.content if getattr(p, "type", "") == "text"))
+                    if str(obj.get("record", {}).get("tplid")) != "131":
+                        return {"status": "forbidden"}
+                    before = obj.get("record", {}).get("code", "")
+                    if not isinstance(before, str) or not before:
+                        return {"status": "invalid_source"}
+                    after = before
+                    changed = []
+                    for ident, target in mapping.items():
+                        pattern = r"https://drive\\.google\\.com/thumbnail\\?id=" + re.escape(ident) + r"&(?:amp;)?sz=w[0-9]+"
+                        after, count = re.subn(pattern, target, after)
+                        if count:
+                            changed.append(ident)
+                    if not changed:
+                        return {"status": "no_changes"}
+                    written = await upstream.call_tool("update_record", {
+                        **args, "fields": {"code": after}, "only_field": "code"})
+                    if getattr(written, "is_error", False):
+                        return {"status": "upstream_error", "stage": "save"}
+                    verified = await upstream.call_tool("edit_record", args)
+                    final = json.loads(next(p.text for p in verified.content if getattr(p, "type", "") == "text"))
+                    return {"status": "saved_verified" if final.get("record", {}).get("code") == after else "verification_failed",
+                            "images_replaced": changed, "published_by_agent": False}
+            except Exception:
+                return {"status": "upstream_error", "stage": "image_swap"}
         if action == "tilda_upload_assets":
             # File bytes come from user's connected Drive and are only sent to Tilda.
             from fastmcp import Client
