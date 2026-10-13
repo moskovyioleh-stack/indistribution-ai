@@ -104,6 +104,50 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         Publishing and destructive site actions are forbidden.
         Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "tilda_record_fields":
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            try:
+                pid = int(payload.get("project_id", 0))
+                pageid = int(payload.get("page_id", 0))
+                rid = int(payload.get("record_id", 0))
+            except (ValueError, TypeError):
+                return {"status": "invalid_request"}
+            if pid not in {12112685, 23291206, 14178377, 30763609} or min(pageid, rid) <= 0:
+                return {"status": "forbidden"}
+            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+            if not token:
+                return {"status": "not_configured"}
+            try:
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    pages = await upstream.call_tool("get_pages", {"projectid": pid})
+                    page_data = json.loads(next(p.text for p in pages.content if getattr(p, "type", "") == "text"))
+                    if not isinstance(page_data, list) or not any(
+                        isinstance(p, dict) and str(p.get("id")) == str(pageid)
+                        and str(p.get("projectid")) == str(pid) and not p.get("trash")
+                        for p in page_data
+                    ):
+                        return {"status": "forbidden", "reason": "Page not approved"}
+                    records = await upstream.call_tool("get_page_records", {"projectid": pid, "pageid": pageid})
+                    record_data = json.loads(next(p.text for p in records.content if getattr(p, "type", "") == "text"))
+                    if not isinstance(record_data, list) or not any(
+                        isinstance(r, dict) and str(r.get("recordid")) == str(rid)
+                        for r in record_data
+                    ):
+                        return {"status": "forbidden", "reason": "Record not on page"}
+                    result = await upstream.call_tool("edit_record", {
+                        "projectid": pid, "pageid": pageid, "recordid": rid, "tab": "content"
+                    })
+                    if getattr(result, "is_error", False):
+                        return {"status": "upstream_error", "stage": "edit_record"}
+                    contents = [p.text for p in result.content if getattr(p, "type", "") == "text"]
+                    return {"status": "ok", "record_id": rid, "content": contents[:3]}
+            except Exception:
+                return {"status": "upstream_error", "message": "Unable to retrieve record fields"}
         if action == "tilda_page_structure":
             import json
             from fastmcp import Client
