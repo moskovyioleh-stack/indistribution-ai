@@ -6,7 +6,8 @@ from bs4 import BeautifulSoup
 from fastmcp import FastMCP
 from fastmcp.server.auth import AuthContext
 from fastmcp.server.auth.providers.github import GitHubProvider
-from starlette.responses import JSONResponse\nimport avito_api
+from starlette.responses import JSONResponse
+import avito_api
 
 DOMAINS = {"indistribution.ru", "heinedasaw.indistribution.ru", "powders.indistribution.ru", "molot.website"}
 API = "https://api.tildacdn.info/v1"
