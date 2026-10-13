@@ -29,14 +29,85 @@ async def _validate_payload(payload, allowed_project, tilda):
         raise ValueError("Page not in project")
     return project_id, page_id
 
+# Stable action vocabulary: adding an implementation does not change the MCP schema.
+# Status is deliberately explicit; an advertised action is NOT a claim of working Tilda UI automation.
+READ_ACTIONS = ("inspect", "blocks", "field_probe")
+FUTURE_ACTIONS = {
+    "page_tree": "Site structure and navigation hierarchy",
+    "block_add": "Insert a Tilda block into a draft",
+    "block_remove": "Remove a selected block from a draft",
+    "block_move": "Reorder a selected block in a draft",
+    "block_duplicate": "Duplicate a selected block",
+    "block_settings": "Edit a block's configuration",
+    "text_replace": "Replace exact text in an approved record",
+    "text_style": "Adjust typography, alignment and color",
+    "image_replace": "Replace an image and its alt text",
+    "image_crop": "Adjust image crop and focal point",
+    "video_set": "Configure video/media",
+    "design_tokens": "Configure global colors, fonts, spacing",
+    "responsive_settings": "Review/edit desktop, tablet, mobile settings",
+    "page_seo": "Update SEO title, description and indexing options",
+    "site_settings": "Configure site options",
+    "menu_edit": "Edit navigation items",
+    "form_settings": "Configure forms and recipients",
+    "custom_css": "Review or modify custom CSS safely",
+    "preview_draft": "Preview current unpublished changes",
+    "save_draft": "Save a verified change without publishing",
+    "undo": "Revert a previously applied draft change",
+}
+DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete_site")
+
+def action_catalog():
+    return {
+        "api_version": "1.0",
+        "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan"],
+        "planned_not_implemented": FUTURE_ACTIONS,
+        "permanently_disabled": list(DANGEROUS_ACTIONS),
+        "rules": {
+            "publication": "never",
+            "writes": "disabled until each operation is separately implemented and tested",
+            "scope": "GitHub owner + approved Tilda project/page + local agent allowlist",
+            "draft_writes": "require exact target, optimistic source check, and explicit SAVE_DRAFT_ONLY confirmation",
+            "no_raw_scripts_or_arbitrary_browser_navigation": True,
+        },
+    }
+
 def register_bridge(mcp, owner_only, allowed_project, tilda):
     @mcp.tool(auth=owner_only)
     async def editor_action(action: str, payload: dict) -> dict:
-        """Stable editor command interface. Supported actions: inspect, blocks, field_probe, result.
-        Read-only by default; unrecognized or write actions are rejected.
-        For inspect/blocks/field_probe supply project_id and page_id in payload. field_probe also requires record_id.
-        For result supply job_id. Never publishes a Tilda site.
+        """Stable full-site editor interface (schema v1). Call capabilities first to
+        discover all domains: content, architecture, design, media, SEO, forms,
+        responsive layout, settings, preview, and draft workflow.
+        Implemented: inspect, blocks, field_probe, result, capabilities, plan.
+        Unimplemented mutations return explicit not_implemented, never fake success.
+        Publishing and destructive site actions are forbidden.
+        Pass project_id and page_id for page-bound actions; record_id for field_probe.
         """
+        if action == "capabilities":
+            return action_catalog()
+        if action in DANGEROUS_ACTIONS:
+            return {"status": "forbidden", "action": action, "reason": "Publication or destructive site action is disabled"}
+        if action == "plan":
+            operations = payload.get("operations", [])
+            if not isinstance(operations, list) or len(operations) > 40:
+                return {"error": "operations must be a list of at most 40 items"}
+            planned = []
+            for item in operations:
+                if not isinstance(item, dict):
+                    return {"error": "Each operation must be an object"}
+                name = str(item.get("action", ""))
+                if name not in FUTURE_ACTIONS and name not in READ_ACTIONS:
+                    return {"error": "Unknown action in plan", "action": name}
+                if name in DANGEROUS_ACTIONS:
+                    return {"error": "Forbidden action", "action": name}
+                planned.append({"action": name,
+                                "implementation": "available_read_only" if name in READ_ACTIONS else "not_implemented",
+                                "requires_draft_confirmation": name in FUTURE_ACTIONS})
+            return {"status": "plan_only", "no_changes": True, "operations": planned}
+        if action in FUTURE_ACTIONS:
+            return {"status": "not_implemented", "action": action,
+                    "description": FUTURE_ACTIONS[action],
+                    "message": "Reserved stable interface only. No Tilda changes were made."}
         if action == "result":
             job_id = str(payload.get("job_id", ""))
             if not job_id:
