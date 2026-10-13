@@ -38,7 +38,33 @@ async def inspect(job):
                     record_id = str(job.get("record_id",""))
                     if not record_id.isdecimal() or len(record_id) > 15:
                         return {"status":"rejected","reason":"Invalid record_id"}
-                    # No clicks, edits, form values, HTML, URLs or attributes containing secrets.
+                    # Tilda keeps content fields in its block editor, not in the preview.
+                    # Opening the uniquely identified "Content" control is navigation only;
+                    # no Save, Publish, form submission or text mutation is permitted here.
+                    record = page.locator("#record" + record_id)
+                    if await record.count() != 1:
+                        record = page.locator("#rec" + record_id)
+                    content_buttons = record.get_by_text("Контент", exact=True)
+                    if await content_buttons.count() != 1:
+                        content_buttons = record.get_by_text("Content", exact=True)
+                    content_panel = "not_opened"
+                    if await content_buttons.count() == 1 and await content_buttons.is_visible():
+                        await content_buttons.click(timeout=5000)
+                        await page.wait_for_timeout(700)
+                        content_panel = "opened"
+                    # Inspect only field metadata; never capture credential fields or full HTML.
+                    panel_fields = await page.evaluate("""() => {
+                      return [...document.querySelectorAll('input,textarea,[contenteditable="true"]')]
+                        .filter(el => { const r=el.getBoundingClientRect();
+                          return r.width>0 && r.height>0 && el.type !== 'password'; })
+                        .slice(0,45).map(el => ({
+                          tag:el.tagName.toLowerCase(),
+                          name:(el.getAttribute('name')||'').slice(0,70),
+                          placeholder:(el.getAttribute('placeholder')||'').slice(0,80),
+                          type:(el.getAttribute('type')||'').slice(0,25)
+                        }));
+                    }""")
+                    # No clicks other than opening the content panel.
                     probe = await page.evaluate("""(recordId) => {
                       const parent = document.getElementById('record' + recordId)
                         || document.getElementById('rec' + recordId);
@@ -63,8 +89,8 @@ async def inspect(job):
                     if "error" in probe:
                         return {"status":"error","reason":probe["error"]}
                     return {"status":"ok","page_title":(await page.title())[:200],
-                            "editor_open":True,"fields":probe["fields"][:60],
-                            "reason":"Read-only field probe; record text: " + probe["record_text"][:240]}
+                            "editor_open":True,"fields":probe["fields"][:60] + panel_fields[:40],
+                            "reason":"Content panel " + content_panel + "; record text: " + probe["record_text"][:240]}
                 if job["type"] == "blocks":
                     # Inspect Tilda editor record wrappers, not only rendered h1/p tags.
                     # Return bounded metadata; never send HTML, links, cookies or form values.
