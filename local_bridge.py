@@ -407,7 +407,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
+                "update_record", "add_record", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -448,6 +448,12 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                if method == "add_record":
+                    if (pid != 14178377 or set(args) != {"projectid", "pageid", "tplid", "afterid"}
+                        or args.get("pageid") != 302584509
+                        or str(args.get("tplid")) != "702"
+                        or args.get("afterid") != 4740715501):
+                        return {"status": "forbidden", "reason": "Only MOLOT BF502N after main page is allowed"}
                 if method == "update_zero_block":
                     if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
                         return {"status": "forbidden", "reason": "Only MOLOT 404 Zero Block may be edited"}
