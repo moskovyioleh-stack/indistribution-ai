@@ -412,7 +412,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
                 "get_page_settings", "get_record_html", "get_head_code",
-                "get_project_css_code", "get_robots_txt", "get_favicons",
+                "get_project_css_code", "get_robots_txt", "get_favicons", "get_zero_block",
                 "get_https_www_redirect_settings", "get_form_integrations",
             }
             # No dynamic write whitelist: Tilda may add publishing methods later.
