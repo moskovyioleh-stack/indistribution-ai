@@ -458,7 +458,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "All favicon fields required"}
                     for key in ("favicon", "favicon152", "msicon270", "favicondark"):
                         url = args[key]
-                        if not isinstance(url, str) or not url.startswith("https://static.tildacdn.com/"):
+                        if not isinstance(url, str) or (url and not url.startswith("https://static.tildacdn.com/")):
                             return {"status": "forbidden", "reason": "Only Tilda CDN favicon URLs allowed"}
                     if args["faviconsvg"] != "" or args["msiconbgcolor"] != "#0B1520" or args["tile"] != "#0B1520":
                         return {"status": "forbidden", "reason": "Favicon palette or SVG not approved"}
