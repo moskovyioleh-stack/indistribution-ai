@@ -451,7 +451,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if args.get("recordid") == 4796839901:
                         if pid != 14178377 or args.get("pageid") != 302584509:
                             return {"status": "forbidden", "reason": "Form outside MOLOT"}
-                        allowed_content = {"title", "descr", "text", "buttontitle",
+                        allowed_content = {"title", "descr", "text", "buttontitle", "list",
                                            "linkhook", "forminputs", "formmsgsuccess", "img"}
                         allowed_settings = {"bgcolor", "popup_bgcolor", "popup_bgopacity",
                                             "popup_iconcolor", "inputcolor", "inputbgcolor",
