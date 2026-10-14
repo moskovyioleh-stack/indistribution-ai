@@ -451,7 +451,11 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "update_page_head_code":
                     # Restricted to MOLOT homepage, single static favicon link.
                     icon = "https://static.tildacdn.com/tild3962-3034-4737-a139-386465303461/molot-favicon-512.png"
-                    expected = '<link rel="icon" type="image/png" sizes="512x512" href="' + icon + '">'
+                    expected = ('<link rel="shortcut icon" type="image/png" href="' + icon + '">\\n'
+                                + '<link rel="icon" type="image/png" href="' + icon + '">\\n'
+                                + '<script>document.addEventListener("DOMContentLoaded",function(){'
+                                + 'document.querySelectorAll(\'link[rel~="icon"]\').forEach(function(el){'
+                                + 'if(el.href.indexOf("tildafavicon.ico")!==-1){el.remove();}});});</script>')
                     if pid != 14178377 or args.get("pageid") != 302584509 or set(args) != {"projectid", "pageid", "headcode"} or args["headcode"] != expected:
                         return {"status": "forbidden", "reason": "Only the approved MOLOT favicon tag is permitted"}
                 if method == "update_project_favicons":
