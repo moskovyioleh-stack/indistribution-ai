@@ -448,6 +448,19 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                    if args.get("recordid") == 4796839901:
+                        if pid != 14178377 or args.get("pageid") != 302584509:
+                            return {"status": "forbidden", "reason": "Form outside MOLOT"}
+                        allowed_content = {"title", "descr", "text", "buttontitle",
+                                           "linkhook", "forminputs", "formmsgsuccess", "img"}
+                        allowed_settings = {"bgcolor", "popup_bgcolor", "popup_bgopacity",
+                                            "popup_iconcolor", "inputcolor", "inputbgcolor",
+                                            "inputbordercolor", "button_styles", "formname"}
+                        allowed = allowed_content if args["tab"] == "content" else allowed_settings
+                        if args["only_field"] not in allowed:
+                            return {"status": "forbidden", "reason": "Unsafe form field"}
+                        if args["only_field"] in {"forminputs", "button_styles"} and len(str(args["fields"][args["only_field"]])) > 12000:
+                            return {"status": "invalid_request", "reason": "Field too large"}
                 if method == "add_record":
                     if (pid != 14178377 or set(args) != {"projectid", "pageid", "tplid", "afterid"}
                         or args.get("pageid") != 302584509
