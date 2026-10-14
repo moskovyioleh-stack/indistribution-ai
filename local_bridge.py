@@ -564,10 +564,29 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         expected = payload["expected_old_value"]
                         field = args["only_field"]
                         record = parsed.get("record") if isinstance(parsed, dict) else None
-                        if (not isinstance(record, dict) or field not in record
-                            or record[field] != expected):
+                        lookup_field = "list" if field == "forminputs" and args.get("recordid") == 4796839901 else field
+                        if (not isinstance(record, dict) or lookup_field not in record
+                            or record[lookup_field] != expected):
                             return {"status": "precondition_failed",
                                     "reason": "Expected field value differs; no changes"}
+                        if field == "forminputs" and args.get("recordid") == 4796839901:
+                            try:
+                                before = json.loads(expected)
+                                after = json.loads(args["fields"][field])
+                            except (ValueError, TypeError):
+                                return {"status": "invalid_request", "reason": "Invalid form inputs"}
+                            if not isinstance(before, list) or len(before) != 3 or len(after) != 3:
+                                return {"status": "forbidden", "reason": "Must have exactly 3 fields"}
+                            for a, b in zip(before, after):
+                                if a.get("lid") != b.get("lid") or a.get("li_type") != b.get("li_type") or a.get("li_type") not in {"nm", "em", "ph"}:
+                                    return {"status": "forbidden", "reason": "Field identity changed"}
+                                if set(b) - set(a) - {"li_req"}:
+                                    return {"status": "forbidden", "reason": "Unexpected field attributes"}
+                                if any(a[k] != b[k] for k in a if k not in {"li_ph"}):
+                                    return {"status": "forbidden", "reason": "Only placeholders can change"}
+                                if b.get("li_req") != "y":
+                                    return {"status": "forbidden", "reason": "All fields must be required"}
+                            args["fields"] = {"forminputs": after}
                         # For list-backed cards, require preserved structure and a
                         # single textual change. A list field is the entire array.
                         if field == "list":
