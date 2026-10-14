@@ -91,6 +91,7 @@ async def _browse(url, device, screenshot=False):
                 return Image(data=data, format="jpeg")
             metrics = await page.evaluate("""() => ({
               title: document.title,
+              faviconLinks: Array.from(document.querySelectorAll('link[rel~="icon"]')).map(n=>({href:n.href,type:n.type,sizes:n.sizes.value})),
               h1: Array.from(document.querySelectorAll('h1')).map(n=>n.innerText).slice(0,8),
               imageCount: document.images.length,
               brokenImages: Array.from(document.images).filter(i => !i.complete || i.naturalWidth === 0).slice(0,16).map(i => i.currentSrc || i.src),
@@ -99,10 +100,18 @@ async def _browse(url, device, screenshot=False):
               viewportWidth: innerWidth,
               contentLength: document.body.innerText.length,
             })""")
+            icon_checks = []
+            for icon in metrics.get("faviconLinks", [])[:8]:
+                try:
+                    icon_response = await context.request.get(icon["href"], timeout=10000)
+                    icon_checks.append({"url":icon["href"],"status":icon_response.status,
+                                        "contentType":icon_response.headers.get("content-type","")})
+                except Exception as exc:
+                    icon_checks.append({"url":icon["href"],"error":str(exc)[:180]})
             return {"status": "ok", "url": url, "device": device,
                     "http_status": response.status if response else None,
                     "final_url": page.url, "metrics": metrics,
-                    "javascript_errors": errors[:10]}
+                    "javascript_errors": errors[:10], "faviconRequests": icon_checks}
         finally:
             await browser.close()
 
