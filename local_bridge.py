@@ -407,12 +407,12 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "update_page_settings", "update_project_favicons", "update_page_head_code",
+                "update_record", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
                 "get_page_settings", "get_record_html", "get_head_code",
-                "get_project_css_code", "get_robots_txt", "get_favicons", "get_zero_block",
+                "get_project_css_code", "get_robots_txt", "get_favicons", "get_zero_block", "zero_block_instructions",
                 "get_https_www_redirect_settings", "get_form_integrations",
             }
             # No dynamic write whitelist: Tilda may add publishing methods later.
@@ -448,6 +448,24 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                if method == "update_zero_block":
+                    if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
+                        return {"status": "forbidden", "reason": "Only MOLOT 404 Zero Block may be edited"}
+                    data = args["code"]
+                    if not isinstance(data, dict) or len(str(data)) > 160000:
+                        return {"status": "invalid_request", "reason": "Invalid Zero Block structure"}
+                    for key in ("0", "1", "2", "3", "4", "5", "6"):
+                        if key not in data or not isinstance(data[key], dict):
+                            return {"status": "invalid_request", "reason": "Incomplete 404 block"}
+                    if (data["0"].get("text") != "Страница не найдена"
+                        or data["1"].get("text") != "404"
+                        or data["4"].get("caption") != "На главную"
+                        or data["4"].get("link") != "https://molot.website/"
+                        or data.get("ab_bgcolor") != "#0B1520"):
+                        return {"status": "forbidden", "reason": "Unexpected 404 content"}
+                    for key in ("2", "3", "5"):
+                        if data[key].get("link") != "https://molot.website/":
+                            return {"status": "forbidden", "reason": "404 links must return to MOLOT"}
                 if method == "update_page_head_code":
                     # Restricted to MOLOT homepage, single static favicon link.
                     icon = "https://static.tildacdn.com/tild3962-3034-4737-a139-386465303461/molot-favicon-512.png"
