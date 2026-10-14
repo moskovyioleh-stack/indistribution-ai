@@ -407,7 +407,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "update_page_settings", "update_project_favicons",
+                "update_record", "update_page_settings", "update_project_favicons", "update_page_head_code",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -448,6 +448,12 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                if method == "update_page_head_code":
+                    # Restricted to MOLOT homepage, single static favicon link.
+                    icon = "https://static.tildacdn.com/tild3962-3034-4737-a139-386465303461/molot-favicon-512.png"
+                    expected = '<link rel="icon" type="image/png" sizes="512x512" href="' + icon + '">'
+                    if pid != 14178377 or args.get("pageid") != 302584509 or set(args) != {"projectid", "pageid", "headcode"} or args["headcode"] != expected:
+                        return {"status": "forbidden", "reason": "Only the approved MOLOT favicon tag is permitted"}
                 if method == "update_project_favicons":
                     # This approved favicon update cannot change page content or publication.
                     if pid != 14178377:
