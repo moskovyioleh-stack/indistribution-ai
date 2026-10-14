@@ -407,7 +407,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "update_page_settings",
+                "update_record", "update_page_settings", "update_project_favicons",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -448,6 +448,20 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                if method == "update_project_favicons":
+                    # This approved favicon update cannot change page content or publication.
+                    if pid != 14178377:
+                        return {"status": "forbidden", "reason": "Favicon write restricted to MOLOT"}
+                    required = {"projectid", "favicon", "favicon152", "msicon270",
+                                "msiconbgcolor", "favicondark", "faviconsvg", "tile"}
+                    if set(args) != required:
+                        return {"status": "invalid_request", "reason": "All favicon fields required"}
+                    for key in ("favicon", "favicon152", "msicon270", "favicondark"):
+                        url = args[key]
+                        if not isinstance(url, str) or not url.startswith("https://static.tildacdn.com/"):
+                            return {"status": "forbidden", "reason": "Only Tilda CDN favicon URLs allowed"}
+                    if args["faviconsvg"] != "" or args["msiconbgcolor"] != "#0B1520" or args["tile"] != "#0B1520":
+                        return {"status": "forbidden", "reason": "Favicon palette or SVG not approved"}
                 if method == "update_page_settings":
                     safe_settings = {"pageid", "projectid", "date", "title", "meta_title",
                                      "meta_descr", "meta_keywords", "link_canonical",
