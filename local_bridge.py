@@ -474,7 +474,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                 + '<script>document.addEventListener("DOMContentLoaded",function(){'
                                 + 'document.querySelectorAll(\'link[rel~="icon"]\').forEach(function(el){'
                                 + 'if(el.href.indexOf("tildafavicon.ico")!==-1){el.remove();}});});</script>')
-                    if pid != 14178377 or args.get("pageid") != 302584509 or set(args) != {"projectid", "pageid", "headcode"} or args["headcode"] != expected:
+                    mailru = '<meta name="mailru-domain" content="vlZzLjPhA1PQkNVT" />'
+                    if pid != 14178377 or args.get("pageid") != 302584509 or set(args) != {"projectid", "pageid", "headcode"} or args["headcode"] not in (expected, expected + mailru):
                         return {"status": "forbidden", "reason": "Only the approved MOLOT favicon tag is permitted"}
                 if method == "update_project_favicons":
                     # This approved favicon update cannot change page content or publication.
