@@ -851,6 +851,43 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 j = JOBS.get(job_id)
                 return ({k:v for k,v in j.items() if k != "created"}
                         if j else {"error": "Job not found or expired"})
+        # Direct native Tilda reads do not require the optional Windows browser worker.
+        if action in ("blocks", "field_probe"):
+            import json
+            from fastmcp import Client
+            from fastmcp.client.transports import StreamableHttpTransport
+            try:
+                project_id, page_id = await _validate_payload(payload, allowed_project, tilda)
+                pid, pg = int(project_id), int(page_id)
+                token = os.getenv("TILDA_MCP_TOKEN", "").strip()
+                if not token:
+                    return {"status": "not_configured"}
+                async with Client(StreamableHttpTransport(
+                    url="https://tilda.ru/api/mcp/",
+                    headers={"Authorization": "Bearer " + token},
+                )) as upstream:
+                    response = await upstream.call_tool("get_page_records", {"projectid": pid, "pageid": pg})
+                    if getattr(response, "is_error", False):
+                        return {"status": "upstream_error", "stage": "get_page_records"}
+                    records = json.loads(next(x.text for x in response.content if getattr(x, "type", "") == "text"))
+                    if not isinstance(records, list):
+                        return {"status": "invalid_upstream_response"}
+                    if action == "blocks":
+                        return {"status": "ok", "source": "official_tilda_mcp", "block_count": len(records), "blocks": records}
+                    rid = str(payload.get("record_id", ""))
+                    if not rid.isdecimal() or not any(str(x.get("recordid")) == rid for x in records):
+                        return {"status": "forbidden", "reason": "Record not on approved page"}
+                    tab = str(payload.get("tab", "content"))
+                    if tab not in ("content", "settings"):
+                        return {"status": "invalid_request"}
+                    details = await upstream.call_tool("edit_record", {
+                        "projectid": pid, "pageid": pg, "recordid": int(rid), "tab": tab})
+                    if getattr(details, "is_error", False):
+                        return {"status": "upstream_error", "stage": "edit_record"}
+                    data = json.loads(next(x.text for x in details.content if getattr(x, "type", "") == "text"))
+                    return {"status": "ok", "source": "official_tilda_mcp", "record_id": int(rid), "data": data}
+            except Exception:
+                return {"status": "upstream_error", "message": "Native Tilda inspection failed"}
         if action not in ("inspect", "blocks", "field_probe"):
             return {"error": "Unsupported editor action", "supported_actions": ["inspect", "blocks", "field_probe", "result"]}
         if len(os.getenv("LOCAL_AGENT_TOKEN", "").strip()) < 32:
