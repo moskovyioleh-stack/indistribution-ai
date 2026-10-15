@@ -575,17 +575,21 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                 after = json.loads(args["fields"][field])
                             except (ValueError, TypeError):
                                 return {"status": "invalid_request", "reason": "Invalid form inputs"}
-                            if not isinstance(before, list) or len(before) != 3 or len(after) != 3:
-                                return {"status": "forbidden", "reason": "Must have exactly 3 fields"}
+                            if not isinstance(before, list) or len(before) not in (3, 5) or len(after) != 5:
+                                return {"status": "forbidden", "reason": "Form must have five fields"}
+                            if len(before) == 3:
+                                add = after[3:]
+                                if ([x.get("li_type") for x in add] != ["in", "ta"]
+                                    or [x.get("li_nm") for x in add] != ["ObjectType", "ProjectQuestion"]
+                                    or [x.get("li_ph") for x in add] != ["Тип объекта", "Задача или вопрос"]
+                                    or any(set(x) - {"lid", "ls", "loff", "li_parent_id", "li_type", "li_ph", "li_nm", "li_req"} for x in add)
+                                    or any(x.get("li_req") != "n" for x in add)):
+                                    return {"status": "forbidden", "reason": "Unexpected optional fields"}
                             for a, b in zip(before, after):
-                                if a.get("lid") != b.get("lid") or a.get("li_type") != b.get("li_type") or a.get("li_type") not in {"nm", "em", "ph"}:
+                                if a.get("lid") != b.get("lid") or a.get("li_type") != b.get("li_type"):
                                     return {"status": "forbidden", "reason": "Field identity changed"}
-                                if set(b) - set(a) - {"li_req"}:
-                                    return {"status": "forbidden", "reason": "Unexpected field attributes"}
-                                if any(a[k] != b[k] for k in a if k not in {"li_ph"}):
-                                    return {"status": "forbidden", "reason": "Only placeholders can change"}
-                                if b.get("li_req") != "y":
-                                    return {"status": "forbidden", "reason": "All fields must be required"}
+                                if a != b:
+                                    return {"status": "forbidden", "reason": "Existing fields cannot change"}
                             args["fields"] = {"forminputs": after}
                         # For list-backed cards, require preserved structure and a
                         # single textual change. A list field is the entire array.
