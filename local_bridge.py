@@ -407,7 +407,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 return {"status": "invalid_request"}
             project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
-                "update_record", "add_record", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
+                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -461,6 +461,9 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             return {"status": "forbidden", "reason": "Unsafe form field"}
                         if args["only_field"] in {"forminputs", "button_styles"} and len(str(args["fields"][args["only_field"]])) > 12000:
                             return {"status": "invalid_request", "reason": "Field too large"}
+                if method == "add_blank_page":
+                    if pid != 14178377 or set(args) != {"projectid"}:
+                        return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
                 if method == "add_record":
                     if (pid != 14178377 or set(args) != {"projectid", "pageid", "tplid", "afterid"}
                         or args.get("pageid") != 302584509
