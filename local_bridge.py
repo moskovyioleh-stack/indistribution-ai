@@ -448,6 +448,12 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
                     if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
+                    if args.get("only_field") == "pageslist":
+                        allowed_lists = ([192213509, 192399909, 192450309, 192470909],
+                                         [198379209, 198428009])
+                        if (pid != 30763609 or args.get("pageid") != 187654909
+                            or args["fields"].get("pageslist") not in allowed_lists):
+                            return {"status": "forbidden", "reason": "HEINEDA catalog list only"}
                     if args.get("recordid") == 4796839901:
                         if pid != 14178377 or args.get("pageid") != 302584509:
                             return {"status": "forbidden", "reason": "Form outside MOLOT"}
@@ -465,9 +471,10 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if pid != 14178377 or set(args) != {"projectid"}:
                         return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
                 if method == "add_record":
-                    if (pid != 14178377 or set(args) not in ({"projectid", "pageid", "tplid", "afterid"}, {"projectid", "pageid", "tplid"})
+                    if not (pid == 30763609 and args == {"projectid": 30763609, "pageid": 187654909, "tplid": 405, "afterid": 3496610401}):
+                        if (pid != 14178377 or set(args) not in ({"projectid", "pageid", "tplid", "afterid"}, {"projectid", "pageid", "tplid"})
                         or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "702" and args.get("afterid") == 4836552101))):
-                        return {"status": "forbidden", "reason": "Only MOLOT BF502N after main page is allowed"}
+                            return {"status": "forbidden", "reason": "Block insertion not authorized"}
                 if method == "update_zero_block":
                     if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
                         return {"status": "forbidden", "reason": "Only MOLOT 404 Zero Block may be edited"}
