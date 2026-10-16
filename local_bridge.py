@@ -566,11 +566,25 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         expected = payload["expected_old_value"]
                         field = args["only_field"]
                         record = parsed.get("record") if isinstance(parsed, dict) else None
-                        lookup_field = "list" if field == "forminputs" and args.get("recordid") == 4796839901 else field
+                        lookup_field = "list" if field == "forminputs" and args.get("recordid") in (4796839901, 4871274701) else field
                         if (not isinstance(record, dict) or (lookup_field not in record and not blank_catalog)
                             or record.get(lookup_field, "") != expected):
                             return {"status": "precondition_failed",
                                     "reason": "Expected field value differs; no changes"}
+                        if field == "forminputs" and args.get("recordid") == 4871274701:
+                            try:
+                                before = json.loads(expected)
+                                after = json.loads(args["fields"][field])
+                            except (ValueError, TypeError):
+                                return {"status": "invalid_request", "reason": "Invalid form inputs"}
+                            if len(before) != 3 or len(after) != 3:
+                                return {"status": "forbidden", "reason": "Three fields only"}
+                            for x, y in zip(before, after):
+                                if x.get("lid") != y.get("lid") or x.get("li_type") != y.get("li_type"):
+                                    return {"status": "forbidden", "reason": "Identity changed"}
+                                if set(y) - set(x) - {"li_req"} or any(x[k] != y[k] for k in x if k != "li_ph") or y.get("li_req") != "y":
+                                    return {"status": "forbidden", "reason": "Only Russian labels and required flags"}
+                            args["fields"] = {"forminputs": after}
                         if field == "forminputs" and args.get("recordid") == 4796839901:
                             try:
                                 before = json.loads(expected)
