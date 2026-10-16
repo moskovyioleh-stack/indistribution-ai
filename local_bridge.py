@@ -473,7 +473,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "add_record":
                     if not (pid == 30763609 and args == {"projectid": 30763609, "pageid": 187654909, "tplid": 405, "afterid": 3496610401}):
                         if (pid != 14178377 or set(args) not in ({"projectid", "pageid", "tplid", "afterid"}, {"projectid", "pageid", "tplid"})
-                        or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "702" and args.get("afterid") == 4836552101))):
+                        or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") in (312767109,312767509,312768009) and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "702" and args.get("afterid") == 4836552101))):
                             return {"status": "forbidden", "reason": "Block insertion not authorized"}
                 if method == "update_zero_block":
                     if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
@@ -557,7 +557,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             for r in record_list
                         ):
                             return {"status": "forbidden", "reason": "Record not approved"}
-                        blank_catalog = (pid == 14178377 and pageid == 309770709 and args.get("recordid") == 4836552101 and args.get("only_field") == "code" and payload.get("expected_old_value") == "" and args["tab"] == "content")
+                        blank_catalog = (pid == 14178377 and args.get("only_field") == "code" and payload.get("expected_old_value") == "" and args["tab"] == "content" and ((pageid == 309770709 and args.get("recordid") == 4836552101) or (pageid in (312767109,312767509,312768009) and args.get("recordid") in (0,))))
                         if not payload.get("expected_old_value") and not blank_catalog:
                             return {"status": "precondition_required",
                                     "reason": "Provide expected_old_value for a targeted field"}
