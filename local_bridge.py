@@ -557,7 +557,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             for r in record_list
                         ):
                             return {"status": "forbidden", "reason": "Record not approved"}
-                        blank_catalog = (pid == 14178377 and args.get("only_field") == "code" and payload.get("expected_old_value") == "" and args["tab"] == "content" and ((pageid == 309770709 and args.get("recordid") == 4836552101) or (pageid in (312767109,312767509,312768009) and args.get("recordid") in (0,))))
+                        blank_catalog = (pid == 14178377 and args.get("only_field") == "code" and payload.get("expected_old_value") == "" and args["tab"] == "content" and ((pageid == 309770709 and args.get("recordid") == 4836552101) or ((pageid, args.get("recordid")) in ((312767109,4875262001),(312767509,4875264701),(312768009,4875267901)))))
                         if not payload.get("expected_old_value") and not blank_catalog:
                             return {"status": "precondition_required",
                                     "reason": "Provide expected_old_value for a targeted field"}
