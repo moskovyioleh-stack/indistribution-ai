@@ -466,7 +466,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
                 if method == "add_record":
                     if (pid != 14178377 or set(args) not in ({"projectid", "pageid", "tplid", "afterid"}, {"projectid", "pageid", "tplid"})
-                        or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args))):
+                        or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "702" and args.get("afterid") == 4836552101))):
                         return {"status": "forbidden", "reason": "Only MOLOT BF502N after main page is allowed"}
                 if method == "update_zero_block":
                     if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
