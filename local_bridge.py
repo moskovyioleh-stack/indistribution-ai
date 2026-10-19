@@ -493,7 +493,22 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     for key in ("2", "3", "5"):
                         if data[key].get("link") != "https://molot.website/":
                             return {"status": "forbidden", "reason": "404 links must return to MOLOT"}
-                if method == "update_page_head_code":
+                if method == "update_page_head_code" and pid == 12112685:
+                    # Restore the native Tilda grid. The prior universal .t-col and
+                    # .t-rec overrides broke card widths and section spacing.
+                    safe_head = ('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\\n'
+                                 '<style>\\n'
+                                 '/* Corporate homepage: preserve Tilda native grid and spacing. */\\n'
+                                 '#rec3402403901 .t-card__title{font-size:24px;line-height:1.25;}\\n'
+                                 '#rec3402403901 .t-card__descr{font-size:16px;line-height:1.55;}\\n'
+                                 '#rec3402403901 .t692__blockimg{border-radius:12px;overflow:hidden;}\\n'
+                                 '@media(max-width:640px){#rec3402403901 .t-card__title{font-size:21px;}}\\n'
+                                 '</style>')
+                    if (args.get("pageid") != 73629709
+                        or set(args) != {"projectid", "pageid", "headcode"}
+                        or args["headcode"] != safe_head):
+                        return {"status": "forbidden", "reason": "Only approved corporate grid repair allowed"}
+                elif method == "update_page_head_code":
                     # Restricted to MOLOT homepage, single static favicon link.
                     icon = "https://static.tildacdn.com/tild3962-3034-4737-a139-386465303461/molot-favicon-512.png"
                     expected = ('<link rel="shortcut icon" type="image/png" href="' + icon + '">'
