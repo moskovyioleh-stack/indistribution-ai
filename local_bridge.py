@@ -496,13 +496,13 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "update_page_head_code" and pid == 12112685:
                     # Restore the native Tilda grid. The prior universal .t-col and
                     # .t-rec overrides broke card widths and section spacing.
-                    safe_head = ('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\\n'
-                                 '<style>\\n'
-                                 '/* Corporate homepage: preserve Tilda native grid and spacing. */\\n'
-                                 '#rec3402403901 .t-card__title{font-size:24px;line-height:1.25;}\\n'
-                                 '#rec3402403901 .t-card__descr{font-size:16px;line-height:1.55;}\\n'
-                                 '#rec3402403901 .t692__blockimg{border-radius:12px;overflow:hidden;}\\n'
-                                 '@media(max-width:640px){#rec3402403901 .t-card__title{font-size:21px;}}\\n'
+                    safe_head = ('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+                                 '<style>\n'
+                                 '/* Corporate homepage: preserve Tilda native grid and spacing. */\n'
+                                 '#rec3402403901 .t-card__title{font-size:24px;line-height:1.25;}\n'
+                                 '#rec3402403901 .t-card__descr{font-size:16px;line-height:1.55;}\n'
+                                 '#rec3402403901 .t692__blockimg{border-radius:12px;overflow:hidden;}\n'
+                                 '@media(max-width:640px){#rec3402403901 .t-card__title{font-size:21px;}}\n'
                                  '</style>')
                     if (args.get("pageid") != 73629709
                         or set(args) != {"projectid", "pageid", "headcode"}
