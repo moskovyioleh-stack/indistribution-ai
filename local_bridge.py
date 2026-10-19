@@ -622,8 +622,25 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                 after = json.loads(args["fields"][field])
                             except (ValueError, TypeError):
                                 return {"status": "invalid_request", "reason": "Invalid list JSON"}
-                            if (not isinstance(before, list) or not isinstance(after, list)
-                                or len(before) != len(after)):
+                            if not isinstance(before, list) or not isinstance(after, list):
+                                return {"status": "forbidden", "reason": "List structure changed"}
+                            # Allow only one preapproved third card on the corporate homepage.
+                            approved_card = {
+                                "lid": "8555208995102", "ls": "30", "loff": "",
+                                "li_img": "https://static.tildacdn.com/tild3466-6465-4635-a563-376530626134/skyfend-catalog-clea.png",
+                                "li_imgalt": "Решения SkyFend для обнаружения и противодействия БПЛА",
+                                "li_title": "Промышленная безопасность и защита от БПЛА",
+                                "li_descr": "Технологии обнаружения и мониторинга воздушной обстановки, системы управления и противодействия беспилотным аппаратам для защиты предприятий и объектов инфраструктуры.",
+                                "li_link": "https://molot.website/",
+                                "li_linktarget": "_blank"
+                            }
+                            add_security_card = (
+                                pid == 12112685 and pageid == 73629709
+                                and args.get("recordid") == 3402403901
+                                and len(before) == 2 and len(after) == 3
+                                and after[:2] == before and after[2] == approved_card
+                            )
+                            if len(before) != len(after) and not add_security_card:
                                 return {"status": "forbidden", "reason": "List structure changed"}
                             deltas = 0
                             for before_item, after_item in zip(before, after):
@@ -636,7 +653,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                         if item_key not in ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"}):
                                             return {"status": "forbidden", "reason": "Protected list metadata changed"}
                                         deltas += 1
-                            if deltas != 1:
+                            if deltas != 1 and not (add_security_card and deltas == 0):
                                 return {"status": "forbidden", "reason": "Exactly one card field may change"}
                     result = await upstream.call_tool(method, args)
                     if getattr(result, "is_error", False):
