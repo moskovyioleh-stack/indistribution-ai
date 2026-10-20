@@ -655,7 +655,15 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                 and len(before) == 2 and len(after) == 3
                                 and after[:2] == before and after[2] == approved_card
                             )
-                            if len(before) != len(after) and not add_security_card:
+                            remove_security_card = (
+                                pid == 12112685 and pageid == 73629709
+                                and args.get("recordid") == 3402403901
+                                and len(before) == 3 and len(after) == 2
+                                and after == before[:2]
+                                and before[2].get("lid") == "8555208995102"
+                                and before[2].get("li_link") == "https://molot.website/"
+                            )
+                            if len(before) != len(after) and not (add_security_card or remove_security_card):
                                 return {"status": "forbidden", "reason": "List structure changed"}
                             deltas = 0
                             for before_item, after_item in zip(before, after):
@@ -668,7 +676,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                         if item_key not in ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"}):
                                             return {"status": "forbidden", "reason": "Protected list metadata changed"}
                                         deltas += 1
-                            if deltas != 1 and not (add_security_card and deltas == 0):
+                            if deltas != 1 and not ((add_security_card or remove_security_card) and deltas == 0):
                                 return {"status": "forbidden", "reason": "Exactly one card field may change"}
                     result = await upstream.call_tool(method, args)
                     if getattr(result, "is_error", False):
