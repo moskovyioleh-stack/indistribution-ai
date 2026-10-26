@@ -405,7 +405,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             args = payload.get("arguments", {})
             if not isinstance(args, dict) or not isinstance(method, str):
                 return {"status": "invalid_request"}
-            project_ids = {12112685, 23291206, 14178377, 30763609}
             write_methods = {
                 "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
             }
@@ -426,8 +425,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     pid = int(args["projectid"])
                 except (KeyError, ValueError, TypeError):
                     return {"status": "invalid_request", "reason": "projectid required"}
-                if pid not in project_ids:
-                    return {"status": "forbidden", "reason": "Project not approved"}
+                if pid <= 0:
+                    return {"status": "invalid_request", "reason": "Positive projectid required"}
             page_methods = {
                 "get_page_records", "edit_record", "get_page_settings",
                 "get_record_html", "update_record", "add_record",
@@ -471,10 +470,16 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if pid != 14178377 or set(args) != {"projectid"}:
                         return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
                 if method == "add_record":
-                    if not (pid == 30763609 and args == {"projectid": 30763609, "pageid": 187654909, "tplid": 405, "afterid": 3496610401}):
-                        if (pid != 14178377 or set(args) not in ({"projectid", "pageid", "tplid", "afterid"}, {"projectid", "pageid", "tplid"})
-                        or not ((args.get("pageid") == 302584509 and str(args.get("tplid")) == "702" and args.get("afterid") == 4740715501) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") in (312767109,312767509,312768009) and str(args.get("tplid")) == "131" and "afterid" not in args) or (args.get("pageid") == 309770709 and str(args.get("tplid")) == "702" and args.get("afterid") == 4836552101))):
-                            return {"status": "forbidden", "reason": "Block insertion not authorized"}
+                    allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
+                    if set(args) - allowed_keys or "tplid" not in args:
+                        return {"status": "invalid_request", "reason": "Invalid block insertion arguments"}
+                    if "beforeid" in args and "afterid" in args:
+                        return {"status": "invalid_request", "reason": "Choose only one insertion position"}
+                    if not re.fullmatch(r"[1-9][0-9]*(_[0-9]+)?", str(args["tplid"])):
+                        return {"status": "invalid_request", "reason": "Invalid Tilda template ID"}
+                    for position in ("beforeid", "afterid"):
+                        if position in args and (type(args[position]) is not int or args[position] <= 0):
+                            return {"status": "invalid_request", "reason": "Invalid insertion position"}
                 if method == "update_zero_block":
                     if pid != 14178377 or args.get("pageid") != 73934705 or args.get("recordid") != 1224472476 or set(args) != {"projectid", "pageid", "recordid", "code"}:
                         return {"status": "forbidden", "reason": "Only MOLOT 404 Zero Block may be edited"}
@@ -547,6 +552,20 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     url="https://tilda.ru/api/mcp/",
                     headers={"Authorization": "Bearer " + token},
                 )) as upstream:
+                    if method != "get_projects":
+                        projects_result = await upstream.call_tool("get_projects", {})
+                        if getattr(projects_result, "is_error", False):
+                            return {"status": "upstream_error", "stage": "get_projects"}
+                        project_texts = [p.text for p in projects_result.content
+                                         if getattr(p, "type", "") == "text"]
+                        try:
+                            projects = json.loads(project_texts[0])
+                        except (IndexError, ValueError, TypeError):
+                            return {"status": "precondition_failed", "reason": "Cannot verify Tilda projects"}
+                        if not isinstance(projects, list) or not any(
+                            isinstance(p, dict) and str(p.get("id")) == str(pid) for p in projects
+                        ):
+                            return {"status": "forbidden", "reason": "Project unavailable to connected Tilda account"}
                     if method in page_methods:
                         pages_result = await upstream.call_tool("get_pages", {"projectid": pid})
                         if getattr(pages_result, "is_error", False):
