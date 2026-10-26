@@ -710,7 +710,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                     return {"status": "forbidden", "reason": "List keys changed"}
                                 for item_key in before_item:
                                     if before_item[item_key] != after_item[item_key]:
-                                        if item_key not in ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"}):
+                                        if item_key not in ({"li_buttontitle", "li_link"} if pid == 23291206 and pageid == 127343746 and args.get("recordid") == 5186454801 else ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"})):
                                             return {"status": "forbidden", "reason": "Protected list metadata changed"}
                                         deltas += 1
                             if deltas != 1 and not ((add_security_card or remove_security_card) and deltas == 0):
