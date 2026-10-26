@@ -406,7 +406,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             if not isinstance(args, dict) or not isinstance(method, str):
                 return {"status": "invalid_request"}
             write_methods = {
-                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block",
+                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block", "toggle_page_block_visibility",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -429,7 +429,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     return {"status": "invalid_request", "reason": "Positive projectid required"}
             page_methods = {
                 "get_page_records", "edit_record", "get_page_settings",
-                "get_record_html", "update_record", "add_record",
+                "get_record_html", "update_record", "add_record", "toggle_page_block_visibility",
                 "update_page_settings", "update_page_head_code",
             }
             if method in page_methods:
@@ -469,6 +469,12 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "add_blank_page":
                     if pid != 14178377 or set(args) != {"projectid"}:
                         return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
+                if method == "toggle_page_block_visibility":
+                    # Reversible migration: hide only the previous powders homepage menu.
+                    if (pid != 23291206 or pageid != 127343746
+                        or args != {"projectid": 23291206, "pageid": 127343746,
+                                    "recordid": 3502479401}):
+                        return {"status": "forbidden", "reason": "Header migration only"}
                 if method == "add_record":
                     allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
                     if set(args) - allowed_keys or "tplid" not in args:
@@ -579,6 +585,18 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             for p in page_list
                         ):
                             return {"status": "forbidden", "reason": "Page not approved"}
+                    if method == "toggle_page_block_visibility":
+                        prior = await upstream.call_tool("get_record_html", args)
+                        if getattr(prior, "is_error", False):
+                            return {"status": "precondition_failed", "reason": "Cannot inspect old header"}
+                        prior_text = [p.text for p in prior.content
+                                      if getattr(p, "type", "") == "text"]
+                        try:
+                            rendered = json.loads(prior_text[0])["html"]
+                        except (IndexError, TypeError, KeyError, ValueError):
+                            return {"status": "precondition_failed", "reason": "Cannot parse old header"}
+                        if 'recordid="3502479401" off="n"' not in rendered:
+                            return {"status": "precondition_failed", "reason": "Old header is not visible"}
                     if method == "update_record":
                         records = await upstream.call_tool(
                             "get_page_records", {"projectid": pid, "pageid": pageid})
