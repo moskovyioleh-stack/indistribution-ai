@@ -472,8 +472,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "toggle_page_block_visibility":
                     # Reversible migration: hide only the previous powders homepage menu.
                     if (pid != 23291206 or pageid != 127343746
-                        or args != {"projectid": 23291206, "pageid": 127343746,
-                                    "recordid": 3502479401}):
+                        or set(args) != {"projectid", "pageid", "recordid"}
+                        or args.get("recordid") not in (3502479401, 5186649201)):
                         return {"status": "forbidden", "reason": "Header migration only"}
                 if method == "add_record":
                     allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
@@ -595,7 +595,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             rendered = json.loads(prior_text[0])["html"]
                         except (IndexError, TypeError, KeyError, ValueError):
                             return {"status": "precondition_failed", "reason": "Cannot parse old header"}
-                        if 'recordid="3502479401" off="n"' not in rendered:
+                        if f'recordid="{args["recordid"]}" off="n"' not in rendered:
                             return {"status": "precondition_failed", "reason": "Old header is not visible"}
                     if method == "update_record":
                         records = await upstream.call_tool(
