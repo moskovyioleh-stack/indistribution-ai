@@ -476,7 +476,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     # Reversible migration: hide only the previous powders homepage menu.
                     if (pid != 23291206 or pageid != 127343746
                         or set(args) != {"projectid", "pageid", "recordid"}
-                        or args.get("recordid") not in (3502479401, 5186649201, 2096081871)):
+                        or args.get("recordid") not in (3502479401, 5186649201, 2096081871, 2087076191, 5209342401, 5209369701, 5209389301)):
                         return {"status": "forbidden", "reason": "Header migration only"}
                 if method == "add_record":
                     allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
@@ -703,7 +703,13 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                 and before[2].get("lid") == "8555208995102"
                                 and before[2].get("li_link") == "https://molot.website/"
                             )
-                            if len(before) != len(after) and not (add_security_card or remove_security_card):
+                            trim_tijo_gallery = (
+                                pid == 23291206 and pageid == 127343746
+                                and args.get("recordid") == 5209428801
+                                and len(before) == 6 and len(after) == 4
+                                and after == before[:4]
+                            )
+                            if len(before) != len(after) and not (add_security_card or remove_security_card or trim_tijo_gallery):
                                 return {"status": "forbidden", "reason": "List structure changed"}
                             deltas = 0
                             for before_item, after_item in zip(before, after):
@@ -716,7 +722,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                         if item_key not in ({"li_buttontitle", "li_link"} if pid == 23291206 and pageid == 127343746 and args.get("recordid") == 5186454801 else ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"})):
                                             return {"status": "forbidden", "reason": "Protected list metadata changed"}
                                         deltas += 1
-                            if deltas != 1 and not ((add_security_card or remove_security_card) and deltas == 0):
+                            if deltas != 1 and not ((add_security_card or remove_security_card or trim_tijo_gallery) and deltas == 0):
                                 return {"status": "forbidden", "reason": "Exactly one card field may change"}
                     result = await upstream.call_tool(method, args)
                     if getattr(result, "is_error", False):
