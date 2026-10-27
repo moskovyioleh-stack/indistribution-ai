@@ -476,7 +476,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     # Reversible migration: hide only the previous powders homepage menu.
                     if (pid != 23291206 or pageid != 127343746
                         or set(args) != {"projectid", "pageid", "recordid"}
-                        or args.get("recordid") not in (3502479401, 5186649201)):
+                        or args.get("recordid") not in (3502479401, 5186649201, 2096081871)):
                         return {"status": "forbidden", "reason": "Header migration only"}
                 if method == "add_record":
                     allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
