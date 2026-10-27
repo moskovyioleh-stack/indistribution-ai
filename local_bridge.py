@@ -406,7 +406,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             if not isinstance(args, dict) or not isinstance(method, str):
                 return {"status": "invalid_request"}
             write_methods = {
-                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block", "toggle_page_block_visibility",
+                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block", "toggle_page_block_visibility", "save_project_fonts",
             }
             read_methods = {
                 "get_projects", "get_pages", "get_page_records", "edit_record",
@@ -440,6 +440,9 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if pageid <= 0:
                     return {"status": "invalid_request"}
             if is_write:
+                if method == "save_project_fonts":
+                    if (pid != 23291206 or args != {"projectid": 23291206, "headlinefont": "Roboto", "textfont": "Roboto"}):
+                        return {"status": "forbidden", "reason": "Only approved powders typography allowed"}
                 if method == "update_record":
                     if (args.get("tab") not in ("content", "settings")
                         or not isinstance(args.get("fields"), dict)
