@@ -470,7 +470,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         if args["only_field"] in {"forminputs", "button_styles"} and len(str(args["fields"][args["only_field"]])) > 12000:
                             return {"status": "invalid_request", "reason": "Field too large"}
                 if method == "add_blank_page":
-                    if pid != 14178377 or set(args) != {"projectid"}:
+                    if pid not in {14178377, 23291206} or set(args) != {"projectid"}:
                         return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
                 if method == "toggle_page_block_visibility":
                     # Reversible migration: hide only the previous powders homepage menu.
@@ -548,7 +548,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if args["faviconsvg"] != "" or args["msiconbgcolor"] != "#0B1520" or args["tile"] != "#0B1520":
                         return {"status": "forbidden", "reason": "Favicon palette or SVG not approved"}
                 if method == "update_page_settings":
-                    safe_settings = {"pageid", "projectid", "date", "title", "meta_title",
+                    safe_settings = {"pageid", "projectid", "date", "title", "shorttitle", "alias", "meta_title",
                                      "meta_descr", "meta_keywords", "link_canonical",
                                      "fb_title", "fb_descr"}
                     if set(args) - safe_settings:
