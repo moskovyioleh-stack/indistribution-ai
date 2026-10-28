@@ -722,7 +722,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                         if item_key not in ({"li_buttontitle", "li_link"} if pid == 23291206 and pageid == 127343746 and args.get("recordid") == 5186454801 else ({"li_title", "li_descr", "li_img", "li_imgalt", "li_ph"} if args.get("recordid") == 4796839901 else {"li_title", "li_descr", "li_img", "li_imgalt"})):
                                             return {"status": "forbidden", "reason": "Protected list metadata changed"}
                                         deltas += 1
-                            if deltas != 1 and not ((add_security_card or remove_security_card or trim_tijo_gallery) and deltas == 0):
+                            if deltas != 1 and not ((add_security_card or remove_security_card or trim_tijo_gallery) and deltas == 0) and not (pid == 23291206 and args.get("recordid") in (5250104101, 5250122601, 5250148701, 5250180901, 5250212201) and 1 <= deltas <= 8):
                                 return {"status": "forbidden", "reason": "Exactly one card field may change"}
                     result = await upstream.call_tool(method, args)
                     if getattr(result, "is_error", False):
