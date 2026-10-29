@@ -27,7 +27,8 @@ async def call_yandex(name: str, arguments: dict) -> dict:
         if isinstance(counter_id, bool) or not isinstance(counter_id, int) or counter_id <= 0:
             raise ValueError("counter_id must be a positive integer")
     # The upstream additionally verifies each counter's site against its allowlist.
-    key = os.environ.get("YANDEX_MCP_ACCESS_KEY", "").strip()
+    key = (os.environ.get("YANDEX_MCP_ACCESS_KEY", "").strip()
+           or os.environ.get("MCP_ACCESS_KEY", "").strip())
     if not key:
         raise RuntimeError("Yandex bridge is not configured: set YANDEX_MCP_ACCESS_KEY")
     payload = {
