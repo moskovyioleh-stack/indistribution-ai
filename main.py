@@ -8,6 +8,7 @@ from fastmcp.server.auth import AuthContext
 from fastmcp.server.auth.providers.github import GitHubProvider
 from starlette.responses import JSONResponse
 import avito_api
+from yandex_tools import register_yandex_tools
 
 DOMAINS = {"indistribution.ru", "heinedasaw.indistribution.ru", "powders.indistribution.ru", "molot.website"}
 API = "https://api.tildacdn.info/v1"
@@ -242,4 +243,7 @@ async def avito_health(request):
 async def health(request):
     return JSONResponse({"status": "ok", "service": "indistribution-ai", "tilda_read_only": True, "avito_configured": bool(os.getenv("AVITO_CLIENT_ID") and os.getenv("AVITO_CLIENT_SECRET"))})
 
+register_yandex_tools(mcp, owner_only)
+
 app = mcp.http_app(path="/mcp", stateless_http=True)
+
