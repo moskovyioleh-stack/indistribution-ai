@@ -75,10 +75,15 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Client.calls, [])
 
     async def test_missing_configuration_fails_closed(self):
-        with patch.dict(os.environ, {"YANDEX_MCP_ACCESS_KEY": ""}):
+        with patch.dict(os.environ, {"YANDEX_MCP_ACCESS_KEY": "", "MCP_ACCESS_KEY": ""}):
             with self.assertRaisesRegex(RuntimeError, "not configured"):
                 await bridge.call_yandex("metrika_counters", {})
         self.assertEqual(Client.calls, [])
+
+    async def test_existing_key_name_supported(self):
+        with patch.dict(os.environ, {"YANDEX_MCP_ACCESS_KEY": "", "MCP_ACCESS_KEY": "existing-test-key"}):
+            await bridge.call_yandex("metrika_counters", {})
+        self.assertEqual(Client.calls[0][1]["headers"]["Authorization"], "Bearer existing-test-key")
 
     async def test_upstream_failure_does_not_echo_secret_or_raw_error(self):
         for result in [{"isError": True, "content": [{"type": "text", "text": "test-only-key"}]},
