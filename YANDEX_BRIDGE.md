@@ -8,7 +8,7 @@ and their existing owner authorization remain unchanged.
 ## Activation after deployment approval
 
 1. In Railway project `precious-tenderness`, production service `indistribution-ai`,
-   add `YANDEX_MCP_ACCESS_KEY`. Copy the value privately from `MCP_ACCESS_KEY` in
+   use `YANDEX_MCP_ACCESS_KEY` or the existing `MCP_ACCESS_KEY`. Copy the value privately from `MCP_ACCESS_KEY` in
    the existing `indistribution-yandex-webmaster` / `yandex-webmaster-mcp` service.
    Do not send it to chat, commit it, or print it. Leave existing variables intact.
    Adding a Railway variable can trigger a deployment: perform this step only
