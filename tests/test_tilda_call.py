@@ -284,6 +284,20 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.write_timeout=True
         await self.assert_status("write_unconfirmed",writes=1)
 
+    async def test_safe_read_failure_diagnostics(self):
+        original = self.call
+        async def fail(name, args):
+            if name == "get_pages":
+                raise RuntimeError("HTTP 429 secret-token-and-body")
+            return await original(name, args)
+        self.call = fail
+        result = await self.run_call()
+        self.assertEqual(result["status"], "upstream_error")
+        self.assertEqual(result["upstream_http_status"], 429)
+        self.assertEqual(result["upstream_tool"], "get_pages")
+        self.assertNotIn("secret-token", str(result))
+        self.assertEqual(self.write_count, 0)
+
     async def test_precondition_structured_error(self):
         self.override_edit=response("OK",structured={"isError":True})
         await self.assert_status("upstream_error")

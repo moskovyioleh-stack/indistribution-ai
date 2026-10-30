@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 from tilda_contracts import (
     CheckedClient, ContractError, result_data, exact, field_contract,
     check_new_value, require_expected, validate_optional_read,
+    safe_failure_metadata,
 )
 
 APPROVED_PROJECT_IDS = {12112685, 23291206, 14178377, 30763609}
@@ -738,12 +739,16 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         parts = [json.dumps(result_data(result), ensure_ascii=False)]
                     return {"status": "upstream_accepted", "tool": method,
                             "published_by_agent": False, "response": parts[:4]}
-            except Exception:
+            except Exception as exc:
+                diagnostics = safe_failure_metadata(exc)
+                diagnostics["upstream_tool"] = getattr(locals().get("upstream"), "last_tool", None)
                 if write_attempted:
                     return {"status": "write_unconfirmed", "tool": method,
                             "published_by_agent": False, "retry_automatically": False,
+                            **diagnostics,
                             "message": "Write may have occurred; inspect current state before any retry"}
-                return {"status": "upstream_error", "message": "Official Tilda MCP request failed"}
+                return {"status": "upstream_error", **diagnostics,
+                        "message": "Official Tilda MCP request failed"}
         if action == "browser_audit":
             from visual_browser import _resolve_url, _browse
             try:

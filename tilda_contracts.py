@@ -1,9 +1,31 @@
 """Strict MCP result and editable-field contracts. No network or credentials."""
 import json
+import re
 
 
 class ContractError(ValueError):
     pass
+
+
+def safe_failure_metadata(exc):
+    """Return only exception type and an explicit HTTP error status, never text."""
+    details = {"error_type": type(exc).__name__[:64]}
+    seen = set()
+    current = exc
+    for _ in range(4):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        status = getattr(getattr(current, "response", None), "status_code", None)
+        if type(status) is int and 400 <= status <= 599:
+            details["upstream_http_status"] = status
+            break
+        match = re.search(r'\b(?:HTTP(?:/[\d.]+)?|status(?:_code| code)?)\s*[:=(]?\s*([45]\d{2})\b', str(current), re.I)
+        if match:
+            details["upstream_http_status"] = int(match[1])
+            break
+        current = current.__cause__ or current.__context__
+    return details
 
 
 def exact(a, b):
@@ -66,13 +88,16 @@ class CheckedClient:
     """Existing route checks now also cover structured MCP failures."""
     def __init__(self, client):
         self.client = client
+        self.last_tool = None
 
     async def call_tool(self, name, arguments):
+        self.last_tool = name
         result = await self.client.call_tool(name, arguments)
         result_data(result)
         return result
 
     async def list_tools(self):
+        self.last_tool = "tools/list"
         return await self.client.list_tools()
 
 
