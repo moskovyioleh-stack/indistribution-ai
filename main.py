@@ -1,6 +1,7 @@
 """GitHub OAuth, owner-only, read-only MCP connector to four Tilda websites."""
 import os
 import re
+import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from fastmcp import FastMCP
@@ -37,13 +38,37 @@ async def tilda(method, **kwargs):
     secret = os.environ.get("TILDA_SECRET_KEY", "").strip()
     if not public or not secret:
         raise RuntimeError("Tilda credentials are not configured")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(f"{API}/{method}/", params={"publickey": public, "secretkey": secret, **kwargs})
-        response.raise_for_status()
-        data = response.json()
-    if data.get("status") != "FOUND":
-        raise ValueError(f"Tilda API status: {data.get('status')}")
-    return data.get("result")
+    # Transient upstream errors are retried, without exposing keys in exception URLs.
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for attempt in range(3):
+            try:
+                response = await client.get(
+                    f"{API}/{method}/",
+                    params={"publickey": public, "secretkey": secret, **kwargs},
+                )
+                if response.status_code in (429, 500, 502, 503, 504):
+                    if attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    raise RuntimeError(
+                        f"Tilda API temporarily unavailable (HTTP {response.status_code}); "
+                        "please retry later"
+                    )
+                if response.is_error:
+                    raise RuntimeError(
+                        f"Tilda API request failed (HTTP {response.status_code}); "
+                        "check service availability and access"
+                    )
+                data = response.json()
+                if data.get("status") != "FOUND":
+                    raise ValueError(f"Tilda API status: {data.get('status')}")
+                return data.get("result")
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                raise RuntimeError("Tilda API connection timed out or failed; retry later") from None
+    raise RuntimeError("Tilda API unavailable")
 
 async def projects():
     items = await tilda("getprojectslist")
@@ -244,6 +269,15 @@ async def health(request):
     return JSONResponse({"status": "ok", "service": "indistribution-ai", "tilda_read_only": True, "avito_configured": bool(os.getenv("AVITO_CLIENT_ID") and os.getenv("AVITO_CLIENT_SECRET"))})
 
 register_yandex_tools(mcp, owner_only)
+
+from tilda_editor import register_editor_tools
+register_editor_tools(mcp, owner_only, allowed_project, tilda)
+
+from local_bridge import register_bridge
+register_bridge(mcp, owner_only, allowed_project, tilda)
+
+from visual_browser import register_browser_tools
+register_browser_tools(mcp, owner_only, allowed_project, tilda)
 
 app = mcp.http_app(path="/mcp", stateless_http=True)
 
