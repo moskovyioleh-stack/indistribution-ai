@@ -74,7 +74,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                         "fastmcp.client.transports": transports})
         self.modules.start()
         self.addCleanup(self.modules.stop)
-        env = patch.dict(os.environ, {"TILDA_MCP_TOKEN": "mock-test-token"})
+        env = patch.dict(os.environ, {"TILDA_MCP_TOKEN": "mock-test-token",
+                                     "TILDA_MCP_MIN_INTERVAL_SECONDS": "0"})
         env.start(); self.addCleanup(env.stop)
 
         class MCP:

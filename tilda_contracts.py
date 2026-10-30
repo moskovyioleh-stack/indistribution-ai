@@ -1,6 +1,40 @@
 """Strict MCP result and editable-field contracts. No network or credentials."""
 import json
 import re
+import asyncio
+import os
+import time
+
+_upstream_gate = asyncio.Lock()
+_next_upstream_call = 0.0
+
+
+async def paced_upstream(operation):
+    """Pace internal preflight/write/readback calls without dropping checks.
+
+    A write is never retried here. Explicit provider rate errors defer the next
+    request; the caller still receives the original failure/uncertain outcome.
+    """
+    global _next_upstream_call
+    try:
+        interval = float(os.getenv("TILDA_MCP_MIN_INTERVAL_SECONDS", "1.0"))
+    except ValueError:
+        interval = 1.0
+    if not 0 <= interval <= 10:
+        interval = 1.0
+    if interval:
+        async with _upstream_gate:
+            delay = _next_upstream_call - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            _next_upstream_call = time.monotonic() + interval
+    try:
+        return await operation()
+    except Exception as exc:
+        if interval and safe_failure_metadata(exc).get("upstream_error_kind") == "rate_limit_message":
+            async with _upstream_gate:
+                _next_upstream_call = max(_next_upstream_call, time.monotonic() + 30)
+        raise
 
 
 class ContractError(ValueError):
@@ -106,13 +140,13 @@ class CheckedClient:
 
     async def call_tool(self, name, arguments):
         self.last_tool = name
-        result = await self.client.call_tool(name, arguments)
+        result = await paced_upstream(lambda: self.client.call_tool(name, arguments))
         result_data(result)
         return result
 
     async def list_tools(self):
         self.last_tool = "tools/list"
-        return await self.client.list_tools()
+        return await paced_upstream(self.client.list_tools)
 
 
 def field_contract(parsed, target, recordid=None):
