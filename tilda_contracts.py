@@ -16,6 +16,20 @@ def safe_failure_metadata(exc):
         if current is None or id(current) in seen:
             break
         seen.add(id(current))
+        rpc = getattr(current, "error", None)
+        code = rpc.get("code") if isinstance(rpc, dict) else getattr(rpc, "code", None)
+        if type(code) is int:
+            details["upstream_rpc_code"] = code
+        message = str(current).lower()
+        for pattern, kind in (
+            (r'\btoo many requests\b|\brate[ _-]?limit(?:ed| exceeded)?\b', "rate_limit_message"),
+            (r'\bsession (?:terminated|not found|expired)\b', "session_unavailable_message"),
+            (r'\bconnection (?:closed|lost|reset)\b|\bnot connected\b', "connection_closed_message"),
+            (r'\btimed? out\b|\btimeout\b', "timeout_message"),
+        ):
+            if re.search(pattern, message):
+                details["upstream_error_kind"] = kind
+                break
         status = getattr(getattr(current, "response", None), "status_code", None)
         if type(status) is int and 400 <= status <= 599:
             details["upstream_http_status"] = status

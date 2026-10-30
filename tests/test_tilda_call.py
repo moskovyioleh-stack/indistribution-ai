@@ -20,7 +20,7 @@ except ModuleNotFoundError:
     sys.modules.update({"starlette": starlette, "starlette.responses": responses})
 
 from local_bridge import register_bridge, action_catalog
-from tilda_contracts import exact, result_data, ContractError
+from tilda_contracts import exact, result_data, ContractError, safe_failure_metadata
 
 
 def response(value="OK", **kw):
@@ -297,6 +297,14 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["upstream_tool"], "get_pages")
         self.assertNotIn("secret-token", str(result))
         self.assertEqual(self.write_count, 0)
+
+    async def test_safe_rpc_failure_metadata(self):
+        exc = RuntimeError("Too many requests: sensitive request contents")
+        exc.error = NS(code=-32000)
+        details = safe_failure_metadata(exc)
+        self.assertEqual(details["upstream_rpc_code"], -32000)
+        self.assertEqual(details["upstream_error_kind"], "rate_limit_message")
+        self.assertNotIn("sensitive", str(details))
 
     async def test_precondition_structured_error(self):
         self.override_edit=response("OK",structured={"isError":True})
