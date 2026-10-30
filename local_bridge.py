@@ -88,6 +88,15 @@ def action_catalog():
             "read_methods": sorted(NATIVE_READS),
             "catalog_checked_read_methods": sorted(OPTIONAL_READS),
             "write_methods": sorted(NATIVE_WRITES),
+            "asset_upload": {
+                "tool": "upload_image", "alias": "tilda_upload_assets",
+                "confirmation": "SAVE_DRAFT_ONLY", "batch_size": "1-8",
+                "sources": ["image_base64", "data URI", "image_url (static.tildacdn.com only)"],
+                "formats": ["JPEG", "PNG", "GIF", "WEBP", "SVG", "APNG", "AVIF", "WOFF", "WOFF2"],
+                "documents": "unsupported; no verified document upload method",
+                "local_files": "client must read bytes and encode Base64; server cannot read client paths",
+                "limit_bytes_env": "TILDA_UPLOAD_MAX_BYTES (default 7500000 per file)",
+            },
             "approved_project_ids": sorted(APPROVED_PROJECT_IDS),
             "create_page_project_ids": sorted(CREATE_PAGE_PROJECT_IDS),
             "single_field_methods": ["update_record", "update_page_settings"],
@@ -139,6 +148,10 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         IDs, original date and exactly one SEO field. Both verify readback.
         Browser inspect is optional and independent. Old UI action names may
         be not_implemented; native tilda_call capabilities are listed separately.
+        upload_image: arguments={projectid: integer, images: 1-8 objects},
+        each with image_base64 (or data URI), mimetype, filename; alternatively
+        image_url on static.tildacdn.com. Requires SAVE_DRAFT_ONLY. Local paths
+        are not transferred. PDF/documents unsupported. See capabilities.
         Publishing, unpublishing and deletion are forbidden.
         """
         if action in DANGEROUS_ACTIONS:
@@ -193,45 +206,14 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                             "images_replaced": changed, "published_by_agent": False}
             except Exception:
                 return {"status": "upstream_error", "stage": "image_swap"}
-        if action == "tilda_upload_assets":
-            # File bytes come from user's connected Drive and are only sent to Tilda.
-            from fastmcp import Client
-            from fastmcp.client.transports import StreamableHttpTransport
-            try:
-                pid = int(payload.get("project_id", 0))
-            except (ValueError, TypeError):
-                return {"status": "invalid_request"}
-            files = payload.get("images", [])
-            if (pid not in {12112685, 23291206, 14178377, 30763609}
-                or not isinstance(files, list) or not 1 <= len(files) <= 8):
-                return {"status": "forbidden"}
-            for f in files:
-                if (not isinstance(f, dict) or
-                    not isinstance(f.get("image_base64"), str) or
-                    len(f["image_base64"]) > 10000000 or
-                    f.get("mimetype") not in ("image/jpeg", "image/png", "image/webp") or
-                    not isinstance(f.get("filename"), str)):
-                    return {"status": "invalid_request"}
-            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
-            if not token:
-                return {"status": "not_configured"}
-            try:
-                async with Client(StreamableHttpTransport(
-                    url="https://tilda.ru/api/mcp/",
-                    headers={"Authorization": "Bearer " + token},
-                )) as upstream:
-                    details = await upstream.call_tool("describe_tool", {"tool_name": "upload_image"})
-                    if getattr(details, "is_error", False):
-                        return {"status": "upstream_error", "stage": "description"}
-                    result = await upstream.call_tool("upload_image", {"projectid": pid, "images": files})
-                    if getattr(result, "is_error", False):
-                        return {"status": "upstream_error", "stage": "upload",
-                                "response": [p.text[:800] for p in result.content
-                                             if getattr(p, "type", "") == "text"]}
-                    return {"status": "uploaded", "response": [
-                        p.text[:12000] for p in result.content if getattr(p, "type", "") == "text"]}
-            except Exception:
-                return {"status": "upstream_error", "stage": "upload"}
+        if action == "tilda_upload_assets" or (
+            action == "tilda_call" and payload.get("tool") == "upload_image"
+        ):
+            from asset_upload import upload_assets
+            arguments = (payload.get("arguments", {}) if action == "tilda_call"
+                         else {"projectid": payload.get("project_id"),
+                               "images": payload.get("images")})
+            return await upload_assets(arguments, payload.get("confirmation"), APPROVED_PROJECT_IDS)
         if action == "tilda_save_draft_html":
             # Store a whole responsive page in T123 HTML block on a NEVER-published page.
             import json
