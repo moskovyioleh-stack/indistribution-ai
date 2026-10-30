@@ -8,6 +8,26 @@ import os
 import secrets
 import time
 from starlette.responses import JSONResponse
+from tilda_contracts import (
+    CheckedClient, ContractError, result_data, exact, field_contract,
+    check_new_value, require_expected, validate_optional_read,
+)
+
+APPROVED_PROJECT_IDS = {12112685, 23291206, 14178377, 30763609}
+CREATE_PAGE_PROJECT_IDS = {14178377, 23291206, 30763609}
+OPTIONAL_READS = {"get_project_settings", "get_sitemap_xml", "page_preview", "describe_tool"}
+NATIVE_WRITES = {
+    "update_record", "add_record", "add_blank_page", "update_page_settings",
+    "update_project_favicons", "update_page_head_code", "update_zero_block",
+    "toggle_page_block_visibility", "save_project_fonts",
+}
+NATIVE_READS = {
+    "get_projects", "get_pages", "get_page_records", "edit_record",
+    "get_page_settings", "get_record_html", "get_head_code",
+    "get_project_css_code", "get_robots_txt", "get_favicons", "get_zero_block",
+    "zero_block_instructions", "tpls_list", "get_https_www_redirect_settings",
+    "get_form_integrations",
+}
 
 JOBS = {}
 GUARD = asyncio.Lock()
@@ -55,17 +75,33 @@ FUTURE_ACTIONS = {
     "save_draft": "Save a verified change without publishing",
     "undo": "Revert a previously applied draft change",
 }
-DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete_site")
+DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete_site",
+                     "delete_page", "delete_record", "tilda_remove_draft_block")
 
 def action_catalog():
     return {
-        "api_version": "1.0",
+        "api_version": "1.1",
         "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools", "tilda_mcp_read", "tilda_page_structure"],
         "planned_not_implemented": FUTURE_ACTIONS,
+        "official_mcp": {
+            "action": "tilda_call", "browser_session_required": False,
+            "read_methods": sorted(NATIVE_READS),
+            "catalog_checked_read_methods": sorted(OPTIONAL_READS),
+            "write_methods": sorted(NATIVE_WRITES),
+            "approved_project_ids": sorted(APPROVED_PROJECT_IDS),
+            "create_page_project_ids": sorted(CREATE_PAGE_PROJECT_IDS),
+            "single_field_methods": ["update_record", "update_page_settings"],
+            "field_write_statuses": ["draft_verified", "verification_mismatch", "write_unconfirmed"],
+            "other_writes": "upstream_accepted means receipt only, not verified persistence",
+        },
+        "browser": {"optional": True, "action": "inspect"},
+        "legacy_actions": {"tilda_create_draft_page": "deprecated; use tilda_call/add_blank_page",
+                           "tilda_add_draft_block": "unpublished pages only"},
+
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
             "publication": "never",
-            "writes": "disabled until each operation is separately implemented and tested",
+            "writes": "explicit tilda_call allowlist; SAVE_DRAFT_ONLY; targeted field checks and readback",
             "scope": "GitHub owner + approved Tilda project/page + local agent allowlist",
             "draft_writes": "require exact target, optimistic source check, and explicit SAVE_DRAFT_ONLY confirmation",
             "no_raw_scripts_or_arbitrary_browser_navigation": True,
@@ -96,14 +132,17 @@ async def official_tilda_projects():
 def register_bridge(mcp, owner_only, allowed_project, tilda):
     @mcp.tool(auth=owner_only)
     async def editor_action(action: str, payload: dict) -> dict:
-        """Stable full-site editor interface (schema v1). Call capabilities first to
-        discover all domains: content, architecture, design, media, SEO, forms,
-        responsive layout, settings, preview, and draft workflow.
-        Implemented: inspect, blocks, field_probe, result, capabilities, plan.
-        Unimplemented mutations return explicit not_implemented, never fake success.
-        Publishing and destructive site actions are forbidden.
-        Pass project_id and page_id for page-bound actions; record_id for field_probe.
+        """Official Tilda MCP via action=tilda_call; call capabilities first.
+        payload: tool, arguments, confirmation=SAVE_DRAFT_ONLY for writes,
+        expected_old_value (explicit, non-null) for single-field updates.
+        update_record: only_field plus one fields entry. update_page_settings:
+        IDs, original date and exactly one SEO field. Both verify readback.
+        Browser inspect is optional and independent. Old UI action names may
+        be not_implemented; native tilda_call capabilities are listed separately.
+        Publishing, unpublishing and deletion are forbidden.
         """
+        if action in DANGEROUS_ACTIONS:
+            return {"status": "forbidden", "reason": "Publication and deletion disabled"}
         if action == "tilda_swap_image_urls":
             import json
             import re
@@ -281,76 +320,9 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             except Exception:
                 return {"status": "upstream_error"}
 
-        if action == "tilda_remove_draft_block":
-            import json
-            from fastmcp import Client
-            from fastmcp.client.transports import StreamableHttpTransport
-            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
-                return {"status": "confirmation_required"}
-            try:
-                pid = int(payload.get("project_id", 0))
-                pageid = int(payload.get("page_id", 0))
-                recordid = int(payload.get("record_id", 0))
-            except (TypeError, ValueError):
-                return {"status": "invalid_request"}
-            if pid not in {12112685, 23291206, 14178377, 30763609}:
-                return {"status": "forbidden"}
-            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
-            if not token:
-                return {"status": "not_configured"}
-            try:
-                async with Client(StreamableHttpTransport(
-                    url="https://tilda.ru/api/mcp/",
-                    headers={"Authorization": "Bearer " + token},
-                )) as upstream:
-                    pages = await upstream.call_tool("get_pages", {"projectid": pid})
-                    listing = json.loads(next(p.text for p in pages.content if getattr(p, "type", "") == "text"))
-                    if not any(str(p.get("id")) == str(pageid) and
-                               str(p.get("projectid")) == str(pid) and
-                               not p.get("published") and not p.get("trash")
-                               for p in listing):
-                        return {"status": "forbidden", "reason": "Not an unpublished page"}
-                    records = await upstream.call_tool("get_page_records", {"projectid": pid, "pageid": pageid})
-                    items = json.loads(next(p.text for p in records.content if getattr(p, "type", "") == "text"))
-                    if not any(str(p.get("recordid")) == str(recordid) for p in items):
-                        return {"status": "forbidden", "reason": "Record not found"}
-                    result = await upstream.call_tool("delete_record",
-                        {"projectid": pid, "pageid": pageid, "recordid": recordid})
-                    if getattr(result, "is_error", False):
-                        return {"status": "upstream_error"}
-                    return {"status": "removed_from_draft", "response": [
-                        p.text for p in result.content if getattr(p, "type", "") == "text"]}
-            except Exception:
-                return {"status": "upstream_error"}
         if action == "tilda_create_draft_page":
-            # Explicitly creates an unpublished page, never publish.
-            import json
-            from fastmcp import Client
-            from fastmcp.client.transports import StreamableHttpTransport
-            if payload.get("confirmation") != "SAVE_DRAFT_ONLY":
-                return {"status": "confirmation_required"}
-            try:
-                pid = int(payload.get("project_id", 0))
-            except (ValueError, TypeError):
-                return {"status": "invalid_request"}
-            if pid not in {12112685, 23291206, 14178377, 30763609}:
-                return {"status": "forbidden"}
-            token = os.getenv("TILDA_MCP_TOKEN", "").strip()
-            if not token:
-                return {"status": "not_configured"}
-            try:
-                async with Client(StreamableHttpTransport(
-                    url="https://tilda.ru/api/mcp/",
-                    headers={"Authorization": "Bearer " + token},
-                )) as upstream:
-                    result = await upstream.call_tool("add_blank_page", {"projectid": pid})
-                    if getattr(result, "is_error", False):
-                        return {"status": "upstream_error", "stage": "create_page"}
-                    parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
-                    return {"status": "created_unpublished", "project_id": pid,
-                            "response": parts[:2], "published": False}
-            except Exception:
-                return {"status": "upstream_error", "stage": "create_page"}
+            return {"status": "redirect_required", "action": "tilda_call",
+                    "tool": "add_blank_page", "message": "Use the guarded native route"}
 
         if action == "tilda_add_draft_block":
             import json
@@ -405,32 +377,31 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             args = payload.get("arguments", {})
             if not isinstance(args, dict) or not isinstance(method, str):
                 return {"status": "invalid_request"}
-            write_methods = {
-                "update_record", "add_record", "add_blank_page", "update_page_settings", "update_project_favicons", "update_page_head_code", "update_zero_block", "toggle_page_block_visibility", "save_project_fonts",
-            }
-            read_methods = {
-                "get_projects", "get_pages", "get_page_records", "edit_record",
-                "get_page_settings", "get_record_html", "get_head_code",
-                "get_project_css_code", "get_robots_txt", "get_favicons", "get_zero_block", "zero_block_instructions", "tpls_list",
-                "get_https_www_redirect_settings", "get_form_integrations",
-            }
+            write_methods = NATIVE_WRITES
+            read_methods = NATIVE_READS | OPTIONAL_READS
+            args = dict(args)
+            if {"expected_old_value", "confirmation"} & set(args):
+                return {"status": "invalid_request", "reason": "Control values belong in payload"}
+            write_attempted = False
+            verify_field = None
+            desired_value = None
             # No dynamic write whitelist: Tilda may add publishing methods later.
             if method not in (read_methods | write_methods):
                 return {"status": "forbidden", "reason": "Method not allowlisted", "tool": method}
             is_write = method in write_methods
             if is_write and payload.get("confirmation") != "SAVE_DRAFT_ONLY":
                 return {"status": "confirmation_required", "confirmation": "SAVE_DRAFT_ONLY"}
-            if method != "get_projects":
+            if method not in ("get_projects", "describe_tool"):
                 try:
                     pid = int(args["projectid"])
                 except (KeyError, ValueError, TypeError):
                     return {"status": "invalid_request", "reason": "projectid required"}
-                if pid <= 0:
-                    return {"status": "invalid_request", "reason": "Positive projectid required"}
+                if pid not in APPROVED_PROJECT_IDS:
+                    return {"status": "forbidden", "reason": "Project not approved"}
             page_methods = {
                 "get_page_records", "edit_record", "get_page_settings",
                 "get_record_html", "update_record", "add_record", "toggle_page_block_visibility",
-                "update_page_settings", "update_page_head_code",
+                "update_page_settings", "update_page_head_code", "page_preview",
             }
             if method in page_methods:
                 try:
@@ -446,9 +417,10 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 if method == "update_record":
                     if (args.get("tab") not in ("content", "settings")
                         or not isinstance(args.get("fields"), dict)
-                        or not isinstance(args.get("recordid"), int)):
+                        or type(args.get("recordid")) is not int):
                         return {"status": "invalid_request", "reason": "recordid, fields and tab required"}
-                    if not args.get("only_field") or set(args["fields"]) != {args["only_field"]}:
+                    if (not isinstance(args.get("only_field"), str) or not args["only_field"]
+                        or set(args["fields"]) != {args["only_field"]}):
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
                     if args.get("only_field") == "pageslist":
                         allowed_lists = ([192213509, 192399909, 192450309, 192470909],
@@ -470,8 +442,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         if args["only_field"] in {"forminputs", "button_styles"} and len(str(args["fields"][args["only_field"]])) > 12000:
                             return {"status": "invalid_request", "reason": "Field too large"}
                 if method == "add_blank_page":
-                    if pid not in {14178377, 23291206} or set(args) != {"projectid"}:
-                        return {"status": "forbidden", "reason": "Only MOLOT project root page creation permitted"}
+                    if pid not in CREATE_PAGE_PROJECT_IDS or set(args) != {"projectid"}:
+                        return {"status": "forbidden", "reason": "Only approved draft project root page creation permitted"}
                 if method == "toggle_page_block_visibility":
                     # Reversible migration: hide only the previous powders homepage menu.
                     if (pid != 23291206 or pageid != 127343746
@@ -560,16 +532,22 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                 async with Client(StreamableHttpTransport(
                     url="https://tilda.ru/api/mcp/",
                     headers={"Authorization": "Bearer " + token},
-                )) as upstream:
-                    if method != "get_projects":
+                )) as raw_upstream:
+                    upstream = CheckedClient(raw_upstream)
+                    if method in OPTIONAL_READS:
+                        try:
+                            available = validate_optional_read(method, args, await upstream.list_tools())
+                        except ContractError:
+                            return {"status": "invalid_request", "reason": "Read arguments or schema invalid"}
+                        if not available:
+                            return {"status": "unsupported_method", "tool": method}
+                    if method not in ("get_projects", "describe_tool"):
                         projects_result = await upstream.call_tool("get_projects", {})
                         if getattr(projects_result, "is_error", False):
                             return {"status": "upstream_error", "stage": "get_projects"}
-                        project_texts = [p.text for p in projects_result.content
-                                         if getattr(p, "type", "") == "text"]
                         try:
-                            projects = json.loads(project_texts[0])
-                        except (IndexError, ValueError, TypeError):
+                            projects = result_data(projects_result)
+                        except ContractError:
                             return {"status": "precondition_failed", "reason": "Cannot verify Tilda projects"}
                         if not isinstance(projects, list) or not any(
                             isinstance(p, dict) and str(p.get("id")) == str(pid) for p in projects
@@ -579,9 +557,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         pages_result = await upstream.call_tool("get_pages", {"projectid": pid})
                         if getattr(pages_result, "is_error", False):
                             return {"status": "upstream_error", "stage": "get_pages"}
-                        parts = [p.text for p in pages_result.content
-                                 if getattr(p, "type", "") == "text"]
-                        page_list = json.loads(parts[0]) if len(parts) == 1 else []
+                        page_list = result_data(pages_result)
                         if not isinstance(page_list, list) or not any(
                             isinstance(p, dict) and str(p.get("id")) == str(pageid)
                             and str(p.get("projectid")) == str(pid) and not p.get("trash")
@@ -603,36 +579,39 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if method == "update_record":
                         records = await upstream.call_tool(
                             "get_page_records", {"projectid": pid, "pageid": pageid})
-                        pieces = [p.text for p in records.content
-                                  if getattr(p, "type", "") == "text"]
-                        record_list = json.loads(pieces[0]) if len(pieces) == 1 else []
+                        record_list = result_data(records)
                         if not isinstance(record_list, list) or not any(
                             isinstance(r, dict)
                             and str(r.get("recordid")) == str(args["recordid"])
                             for r in record_list
                         ):
                             return {"status": "forbidden", "reason": "Record not approved"}
-                        blank_catalog = (pid == 14178377 and args.get("only_field") == "code" and payload.get("expected_old_value") == "" and args["tab"] == "content" and ((pageid == 309770709 and args.get("recordid") == 4836552101) or ((pageid, args.get("recordid")) in ((312767109,4875262001),(312767509,4875264701),(312768009,4875267901)))))
-                        if not payload.get("expected_old_value") and not blank_catalog:
+                        try:
+                            expected = require_expected(payload)
+                        except ContractError:
                             return {"status": "precondition_required",
-                                    "reason": "Provide expected_old_value for a targeted field"}
+                                    "reason": "Explicit non-null expected_old_value required"}
                         current = await upstream.call_tool("edit_record", {
                             "projectid": pid, "pageid": pageid,
                             "recordid": args["recordid"], "tab": args["tab"]})
-                        # Avoid mutating on an unknown editor response structure.
-                        current_texts = [p.text for p in current.content if getattr(p, "type", "") == "text"]
-                        try:
-                            parsed = json.loads(current_texts[0])
-                        except (ValueError, IndexError, TypeError):
-                            return {"status": "precondition_failed", "reason": "Unable to parse current block fields"}
-                        expected = payload["expected_old_value"]
+                        parsed = result_data(current)
                         field = args["only_field"]
-                        record = parsed.get("record") if isinstance(parsed, dict) else None
-                        lookup_field = "list" if field == "forminputs" and args.get("recordid") in (4796839901, 4871274701) else field
-                        if (not isinstance(record, dict) or (lookup_field not in record and not blank_catalog)
-                            or record.get(lookup_field, "") != expected):
+                        try:
+                            actual, send_field = field_contract(parsed, field, args["recordid"])
+                            check_new_value(parsed, field, args["fields"][field], args["recordid"])
+                        except ContractError:
+                            return {"status": "precondition_failed", "reason": "Editable field schema invalid"}
+                        protected = {"list", "forminputs", "pageslist"}
+                        canonical = next(k for k, control in parsed["fields"].items()
+                                         if field in (k, control.get("send_key", k)))
+                        if ((canonical in protected and canonical != field)
+                            or (field not in protected and send_field in protected)):
+                            return {"status": "forbidden", "reason": "Use canonical protected field"}
+                        if not exact(actual, expected):
                             return {"status": "precondition_failed",
                                     "reason": "Expected field value differs; no changes"}
+                        verify_field = field
+                        desired_value = args["fields"][field]
                         if field == "forminputs" and args.get("recordid") == 4871274701:
                             try:
                                 before = json.loads(expected)
@@ -724,14 +703,64 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                         deltas += 1
                             if deltas != 1 and not ((add_security_card or remove_security_card or trim_tijo_gallery) and deltas == 0) and not (pid == 23291206 and args.get("recordid") in (5250104101, 5250122601, 5250148701, 5250180901, 5250212201) and 1 <= deltas <= 8):
                                 return {"status": "forbidden", "reason": "Exactly one card field may change"}
+                    if method == "update_page_settings":
+                        try:
+                            expected = require_expected(payload)
+                        except ContractError:
+                            return {"status": "precondition_required",
+                                    "reason": "Explicit non-null expected_old_value required"}
+                        changed = set(args) - {"projectid", "pageid", "date"}
+                        if len(changed) != 1:
+                            return {"status": "invalid_request", "reason": "Single SEO field required"}
+                        verify_field = next(iter(changed))
+                        current = result_data(await upstream.call_tool("get_page_settings", {
+                            "projectid": pid, "pageid": pageid}))
+                        if not isinstance(current, dict):
+                            return {"status": "precondition_failed", "reason": "Unknown page settings"}
+                        if (not isinstance(args.get("date"), str)
+                            or not isinstance(current.get("date"), str)
+                            or args["date"] != current["date"][:16]):
+                            return {"status": "precondition_failed", "reason": "Original page date required"}
+                        if verify_field not in current or not exact(current[verify_field], expected):
+                            return {"status": "precondition_failed", "reason": "Expected SEO value differs"}
+                        desired_value = args[verify_field]
+                    if method == "update_record":
+                        # Use only the documented send_key; guards above used the caller field.
+                        args["only_field"] = send_field
+                        args["fields"] = {send_field: args["fields"][verify_field]}
+                    write_attempted = is_write
                     result = await upstream.call_tool(method, args)
-                    if getattr(result, "is_error", False):
-                        return {"status": "upstream_error", "stage": method}
+                    if verify_field is not None:
+                        if method == "update_record":
+                            checked = result_data(await upstream.call_tool("edit_record", {
+                                "projectid": pid, "pageid": pageid, "recordid": args["recordid"],
+                                "tab": args["tab"]}))
+                            value, _ = field_contract(checked, verify_field, args["recordid"])
+                        else:
+                            checked = result_data(await upstream.call_tool("get_page_settings", {
+                                "projectid": pid, "pageid": pageid}))
+                            if not isinstance(checked, dict) or verify_field not in checked:
+                                raise ContractError("Missing verified SEO field")
+                            value = checked[verify_field]
+                        # Special form routes serialize JSON on read and send a list on write.
+                        if (method == "update_record" and verify_field == "forminputs"
+                            and args["recordid"] in (4796839901, 4871274701)
+                            and isinstance(value, list)):
+                            desired_value = json.loads(desired_value)
+                        return {
+                            "status": "draft_verified" if exact(value, desired_value) else "verification_mismatch",
+                            "tool": method, "field": verify_field, "published_by_agent": False,
+                        }
                     parts = [p.text for p in result.content if getattr(p, "type", "") == "text"]
-                    # Do not label a successful API response as published.
+                    if not parts:
+                        parts = [json.dumps(result_data(result), ensure_ascii=False)]
                     return {"status": "upstream_accepted", "tool": method,
                             "published_by_agent": False, "response": parts[:4]}
             except Exception:
+                if write_attempted:
+                    return {"status": "write_unconfirmed", "tool": method,
+                            "published_by_agent": False, "retry_automatically": False,
+                            "message": "Write may have occurred; inspect current state before any retry"}
                 return {"status": "upstream_error", "message": "Official Tilda MCP request failed"}
         if action == "browser_audit":
             from visual_browser import _resolve_url, _browse
@@ -1096,3 +1125,4 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count","fields")}
             j["status"] = "complete"
         return JSONResponse({"ok":True})
+

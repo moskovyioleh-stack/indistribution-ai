@@ -125,7 +125,9 @@ async def audit_page(project_id: str, page_id: str) -> dict:
 
 @mcp.custom_route("/healthz", methods=["GET"])
 async def health(request):
-    return JSONResponse({"status": "ok", "service": "indistribution-ai", "read_only": True})
+    return JSONResponse({"status": "ok", "service": "indistribution-ai-editor", "draft_only": True,
+                         "publishing_allowed": False, "editor_api_version": "1.1",
+                         "commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", "")})
 
 from tilda_editor import register_editor_tools
 register_editor_tools(mcp, owner_only, allowed_project, tilda)
@@ -137,3 +139,4 @@ from visual_browser import register_browser_tools
 register_browser_tools(mcp, owner_only, allowed_project, tilda)
 
 app = mcp.http_app(path="/mcp", stateless_http=True)
+
