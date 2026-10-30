@@ -31,6 +31,9 @@ but their availability must still be checked by the caller after live upload.
 Supported: JPEG, PNG/APNG, GIF, WEBP, AVIF (Pillow content verification), a
 conservative SVG subset, WOFF/WOFF2 (fontTools parsing). MIME must match content.
 SVG scripting, CSS, links, external resources and animation are rejected.
+SVG must use UTF-8 (an optional BOM/XML declaration is accepted). Processing
+instructions, DTD/entities, NUL bytes and foreign-namespace elements are rejected
+before upload, including stylesheet instructions otherwise discarded by XML parsers.
 PDF and other documents are unsupported: no official document method has been
 verified; no external file hosting is introduced.
 

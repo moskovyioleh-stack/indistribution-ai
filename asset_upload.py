@@ -15,6 +15,12 @@ class AssetError(ValueError):
     pass
 
 
+class _SVGTreeBuilder(ET.TreeBuilder):
+    def pi(self, target, text=None):
+        # Also catches PIs before/after the root, which root.iter() cannot see.
+        raise AssetError('unsafe_svg')
+
+
 def limit():
     try:
         size = int(os.getenv('TILDA_UPLOAD_MAX_BYTES', '7500000'))
@@ -46,10 +52,18 @@ def sniff(data):
     if data[:4] == b'wOFF': return 'font/woff'
     if data[:4] == b'wOF2': return 'font/woff2'
     if data[4:8] == b'ftyp' and data[8:12] in (b'avif', b'avis'): return 'image/avif'
-    if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
+    # Inspect the same encoding we parse. Byte scans alone miss UTF-16/32 DTDs.
+    # Keep this subset UTF-8 only and retain processing instructions so an
+    # xml-stylesheet PI cannot disappear during validation of the original bytes.
+    try:
+        xml = data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        raise AssetError('unsafe_svg') from None
+    if '\x00' in xml or '<!DOCTYPE' in xml.upper() or '<!ENTITY' in xml.upper():
         raise AssetError('unsafe_svg')
     try:
-        root = ET.fromstring(data)
+        parser = ET.XMLParser(target=_SVGTreeBuilder())
+        root = ET.fromstring(xml, parser=parser)
     except (ET.ParseError, ValueError):
         raise AssetError('unsupported_format') from None
     if root.tag != '{http://www.w3.org/2000/svg}svg':
@@ -59,6 +73,9 @@ def sniff(data):
                'polyline', 'polygon', 'text', 'tspan', 'title', 'desc',
                'linearGradient', 'radialGradient', 'stop', 'clipPath'}
     for node in root.iter():
+        if (not isinstance(node.tag, str)
+                or not node.tag.startswith('{http://www.w3.org/2000/svg}')):
+            raise AssetError('unsafe_svg')
         tag = node.tag.rsplit('}', 1)[-1]
         if tag not in allowed:
             raise AssetError('unsafe_svg')

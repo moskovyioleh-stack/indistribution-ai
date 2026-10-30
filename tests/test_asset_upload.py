@@ -12,6 +12,23 @@ import test_tilda_call
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>'
 
 class ValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_svg_processing_instructions_and_encoded_dtd_rejected(self):
+        for raw in [
+            b'<?xml-stylesheet type="text/css" href="https://example.invalid/a.css"?>' + SVG,
+            SVG.replace(b'<rect', b'<?xml-stylesheet href="https://example.invalid/a.css"?><rect'),
+            '<!DOCTYPE svg [<!ENTITY x "text">]><svg xmlns="http://www.w3.org/2000/svg"><text>&x;</text></svg>'.encode('utf-16'),
+            SVG.decode().encode('utf-32'),
+            b'<svg xmlns="http://www.w3.org/2000/svg"><text xmlns="urn:foreign">text</text></svg>',
+        ]:
+            with self.subTest(size=len(raw)):
+                with self.assertRaises(AssetError):
+                    await normalize({'image_base64': base64.b64encode(raw).decode()})
+
+    async def test_utf8_svg_declaration_and_bom_accepted(self):
+        for raw in [b'<?xml version="1.0" encoding="UTF-8"?>' + SVG, b'\xef\xbb\xbf' + SVG]:
+            result = await normalize({'image_base64': base64.b64encode(raw).decode()})
+            self.assertEqual(result['mimetype'], 'image/svg+xml')
+
     async def test_base64_and_data_uri(self):
         for source in [base64.b64encode(SVG).decode(), 'data:image/svg+xml;base64,' + base64.b64encode(SVG).decode()]:
             result = await normalize({'image_base64': source, 'filename': 'test.svg'})
