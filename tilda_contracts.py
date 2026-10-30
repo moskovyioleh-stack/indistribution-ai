@@ -97,7 +97,12 @@ def field_contract(parsed, target, recordid=None):
     if (not isinstance(control.get("type"), str) or not control["type"]
             or control.get("type") == "hidden" or control.get("readonly") or control.get("read_only")):
         raise ContractError("Field is not editable")
-    storage = key
+    # The editor may expose a form field under a different stored record key
+    # (for example formaction is stored as formintegrations). Use the documented
+    # key for BOTH the optimistic precondition and readback verification.
+    storage = control.get("record_key", key)
+    if not isinstance(storage, str) or not storage:
+        raise ContractError("Invalid record_key")
     # Retain the two existing form aliases, not a general arbitrary-key alias.
     if target == "forminputs" and recordid in (4796839901, 4871274701):
         storage = "list"

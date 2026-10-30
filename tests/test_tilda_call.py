@@ -116,6 +116,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                     storage = next((k for k,c in self.fields.items()
                                     if c.get("send_key",k)==key), key)
                     if storage == "forminputs": storage = "list"
+                    else: storage = self.fields.get(storage, {}).get("record_key", storage)
                     self.record[storage] = val
             elif name == "update_page_settings":
                 self.page.update(args)
@@ -188,6 +189,22 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         args=next(a for n,a in self.calls if n=="update_record")
         self.assertEqual(args["fields"],{"editor_title":"New"})
         self.assertEqual(args["only_field"],"editor_title")
+
+    async def test_form_receiver_record_key_verified(self):
+        self.fields = {"formaction": {"type": "special", "record_key": "formintegrations",
+                                      "send_key": "formaction"}}
+        self.record = {"formintegrations": []}
+        p = self.payload(expected_old_value=[])
+        p["arguments"].update(only_field="formaction", fields={"formaction": ["receiver-id"]})
+        await self.assert_status("draft_verified", p, writes=1)
+        self.assertEqual(self.record["formintegrations"], ["receiver-id"])
+
+    async def test_record_key_conflict_and_invalid_key_rejected(self):
+        self.fields["title"]["record_key"] = "stored_title"
+        self.record["stored_title"] = "Changed"
+        await self.assert_status("precondition_failed")
+        self.fields["title"]["record_key"] = []
+        await self.assert_status("precondition_failed")
 
     async def test_target_send_key(self):
         self.fields["title"]["send_key"]="editor_title"
