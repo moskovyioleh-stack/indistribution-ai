@@ -30,6 +30,8 @@ class PageListTests(unittest.IsolatedAsyncioTestCase):
         return p
 
     async def call(self, name, args):
+        if name == "update_record" and args["only_field"] != "pageslist":
+            return response({"error": "only_field must name the editor control"})
         if name == "get_pages":
             self.calls.append((name, copy.deepcopy(args)))
             if self.pages_error: return self.pages_error
@@ -84,7 +86,7 @@ class PageListTests(unittest.IsolatedAsyncioTestCase):
         await self.assert_status("draft_verified", self.selection(), writes=1)
         write = next(a for n, a in self.calls if n == "update_record")
         self.assertEqual(write["fields"], {"selected_ids": [11, 13, 12]})
-        self.assertEqual(write["only_field"], "selected_ids")
+        self.assertEqual(write["only_field"], "pageslist")
 
     async def test_missing_documented_keys(self):
         for key in ["record_key", "send_key"]:

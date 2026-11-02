@@ -723,7 +723,10 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         desired_value = args[verify_field]
                     if method == "update_record":
                         # Use only the documented send_key; guards above used the caller field.
-                        args["only_field"] = send_field
+                        # Native selectors name the editor control in only_field;
+                        # its value is sent under the separately documented send_key.
+                        args["only_field"] = (canonical if control.get("type") == "id_list"
+                                              else send_field)
                         args["fields"] = {send_field: args["fields"][verify_field]}
                     write_attempted = is_write
                     result = await upstream.call_tool(method, args)
