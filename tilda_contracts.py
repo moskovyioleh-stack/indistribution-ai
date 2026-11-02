@@ -202,6 +202,36 @@ def require_expected(payload):
     return payload["expected_old_value"]
 
 
+def validate_page_ids(control, value, pages, projectid):
+    """Validate a documented native page selector, never a fixed catalog."""
+    if (control.get("type") != "id_list"
+        or any(not isinstance(control.get(k), str) or not control[k]
+               for k in ("record_key", "send_key"))):
+        raise ContractError("Page list requires documented id_list storage and send keys")
+    if (type(value) is not list
+        or any(type(v) is not int or v <= 0 for v in value)
+        or len(set(value)) != len(value)):
+        raise ContractError("Page list requires unique positive integer IDs")
+    # An id_list is an array, including [], unless the editor states a bound.
+    for keys, lower in ((("minItems", "min_items"), True),
+                        (("maxItems", "max_items"), False)):
+        for key in keys:
+            if key in control:
+                bound = control[key]
+                if type(bound) is not int or bound < 0:
+                    raise ContractError("Unknown page list bounds")
+                if (lower and len(value) < bound) or (not lower and len(value) > bound):
+                    raise ContractError("Page list outside documented bounds")
+    if not isinstance(pages, list):
+        raise ContractError("Unknown project page inventory")
+    for pageid in value:
+        matches = [p for p in pages if isinstance(p, dict)
+                   and str(p.get("id")) == str(pageid)]
+        if (len(matches) != 1 or str(matches[0].get("projectid")) != str(projectid)
+            or matches[0].get("trash")):
+            raise ContractError("Selected page is not active in this project")
+
+
 def validate_optional_read(method, args, inventory):
     """Only four explicitly pinned read methods, never dynamic write exposure."""
     shapes = {
@@ -232,3 +262,4 @@ def validate_optional_read(method, args, inventory):
     if not set(args) <= set(schema.get("properties", {})):
         raise ContractError("Upstream input schema differs")
     return True
+

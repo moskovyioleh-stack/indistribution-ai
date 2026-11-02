@@ -472,10 +472,10 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         await self.assert_status("forbidden",self.payload(tool="save_project_fonts",
             arguments={"projectid":23291206,"headlinefont":"Wrong","textfont":"Wrong"}))
 
-    async def test_heineda_pageslist_guard(self):
-        p=self.payload();p["arguments"].update(pageid=187654909,
+    async def test_pageslist_without_editable_schema_rejected(self):
+        p=self.payload();p["arguments"].update(
             only_field="pageslist",fields={"pageslist":[999]})
-        await self.assert_status("forbidden",p)
+        await self.assert_status("precondition_failed",p)
 
     def test_capabilities_routes(self):
         c=action_catalog()
@@ -495,3 +495,4 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__=="__main__":
     unittest.main()
+

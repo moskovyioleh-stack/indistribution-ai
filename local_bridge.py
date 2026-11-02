@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 from tilda_contracts import (
     CheckedClient, ContractError, result_data, exact, field_contract,
     check_new_value, require_expected, validate_optional_read,
-    safe_failure_metadata,
+    safe_failure_metadata, validate_page_ids,
 )
 
 APPROVED_PROJECT_IDS = {12112685, 23291206, 14178377, 30763609}
@@ -101,6 +101,12 @@ def action_catalog():
             "approved_project_ids": sorted(APPROVED_PROJECT_IDS),
             "create_page_project_ids": sorted(CREATE_PAGE_PROJECT_IDS),
             "single_field_methods": ["update_record", "update_page_settings"],
+            "native_page_lists": {
+                "scope": "all approved projects; no fixed page, block or list IDs",
+                "field_type": "id_list", "operations": ["add", "remove", "reorder", "clear_if_schema_allows"],
+                "validation": "fresh schema record_key/send_key, same-project active pages, unique integer IDs, exact old value and readback",
+                "no_op": "draft_verified with changed=false and write_performed=false",
+            },
             "field_write_statuses": ["draft_verified", "verification_mismatch", "write_unconfirmed"],
             "other_writes": "upstream_accepted means receipt only, not verified persistence",
         },
@@ -147,6 +153,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         expected_old_value (explicit, non-null) for single-field updates.
         update_record: only_field plus one fields entry. update_page_settings:
         IDs, original date and exactly one SEO field. Both verify readback.
+        Native pageslist/id_list selectors support add/remove/reorder across
+        all approved projects, with documented keys and active page membership.
         Browser inspect is optional and independent. Old UI action names may
         be not_implemented; native tilda_call capabilities are listed separately.
         upload_image: arguments={projectid: integer, images: 1-8 objects},
@@ -398,6 +406,8 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if (pid != 23291206 or args != {"projectid": 23291206, "headlinefont": "Roboto", "textfont": "Roboto"}):
                         return {"status": "forbidden", "reason": "Only approved powders typography allowed"}
                 if method == "update_record":
+                    if set(args) != {"projectid", "pageid", "recordid", "tab", "fields", "only_field"}:
+                        return {"status": "invalid_request", "reason": "Unexpected record update arguments"}
                     if (args.get("tab") not in ("content", "settings")
                         or not isinstance(args.get("fields"), dict)
                         or type(args.get("recordid")) is not int):
@@ -405,12 +415,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if (not isinstance(args.get("only_field"), str) or not args["only_field"]
                         or set(args["fields"]) != {args["only_field"]}):
                         return {"status": "invalid_request", "reason": "Single-field updates only"}
-                    if args.get("only_field") == "pageslist":
-                        allowed_lists = ([192213509, 192399909, 192450309, 192470909],
-                                         [198379209, 198428009])
-                        if (pid != 30763609 or args.get("pageid") != 187654909
-                            or args["fields"].get("pageslist") not in allowed_lists):
-                            return {"status": "forbidden", "reason": "HEINEDA catalog list only"}
                     if args.get("recordid") == 4796839901:
                         if pid != 14178377 or args.get("pageid") != 302584509:
                             return {"status": "forbidden", "reason": "Form outside MOLOT"}
@@ -587,6 +591,7 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         protected = {"list", "forminputs", "pageslist"}
                         canonical = next(k for k, control in parsed["fields"].items()
                                          if field in (k, control.get("send_key", k)))
+                        control = parsed["fields"][canonical]
                         if ((canonical in protected and canonical != field)
                             or (field not in protected and send_field in protected)):
                             return {"status": "forbidden", "reason": "Use canonical protected field"}
@@ -595,6 +600,15 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                                     "reason": "Expected field value differs; no changes"}
                         verify_field = field
                         desired_value = args["fields"][field]
+                        if canonical == "pageslist" or control.get("type") == "id_list":
+                            try:
+                                validate_page_ids(control, desired_value, page_list, pid)
+                            except ContractError as exc:
+                                return {"status": "precondition_failed", "reason": str(exc)}
+                            if exact(actual, desired_value):
+                                return {"status": "draft_verified", "tool": method,
+                                        "field": field, "changed": False,
+                                        "write_performed": False, "published_by_agent": False}
                         if field == "forminputs" and args.get("recordid") == 4871274701:
                             try:
                                 before = json.loads(expected)
@@ -1112,4 +1126,5 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count","fields")}
             j["status"] = "complete"
         return JSONResponse({"ok":True})
+
 
