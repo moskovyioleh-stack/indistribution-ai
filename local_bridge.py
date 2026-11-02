@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 from tilda_contracts import (
     CheckedClient, ContractError, result_data, exact, field_contract,
     check_new_value, require_expected, validate_optional_read,
-    safe_failure_metadata, validate_page_ids,
+    safe_failure_metadata, validate_page_ids, block_visibility,
 )
 
 APPROVED_PROJECT_IDS = {12112685, 23291206, 14178377, 30763609}
@@ -106,6 +106,13 @@ def action_catalog():
                 "field_type": "id_list", "operations": ["add", "remove", "reorder", "clear_if_schema_allows"],
                 "validation": "fresh schema record_key/send_key, same-project active pages, unique integer IDs, exact old value and readback",
                 "no_op": "draft_verified with changed=false and write_performed=false",
+            },
+            "block_visibility": {
+                "scope": "all approved projects; reversible draft hide/show",
+                "tool": "toggle_page_block_visibility",
+                "expected_old_value": "n (visible) or y (hidden); exact current state required",
+                "validation": "same-project active page, record membership, rendered wrapper state and readback",
+                "retry_automatically": False,
             },
             "field_write_statuses": ["draft_verified", "verification_mismatch", "write_unconfirmed"],
             "other_writes": "upstream_accepted means receipt only, not verified persistence",
@@ -432,11 +439,11 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                     if pid not in CREATE_PAGE_PROJECT_IDS or set(args) != {"projectid"}:
                         return {"status": "forbidden", "reason": "Only approved draft project root page creation permitted"}
                 if method == "toggle_page_block_visibility":
-                    # Reversible migration: hide only the previous powders homepage menu.
-                    if (pid != 23291206 or pageid != 127343746
-                        or set(args) != {"projectid", "pageid", "recordid"}
-                        or args.get("recordid") not in (3502479401, 5186649201, 2096081871, 2087076191, 5209342401, 5209369701, 5209389301)):
-                        return {"status": "forbidden", "reason": "Header migration only"}
+                    if (set(args) != {"projectid", "pageid", "recordid"}
+                        or any(type(args[k]) is not int or args[k] <= 0 for k in args)):
+                        return {"status": "invalid_request", "reason": "Positive integer project, page and record IDs required"}
+                    if payload.get("expected_old_value") not in ("n", "y"):
+                        return {"status": "precondition_required", "reason": "expected_old_value must be n (visible) or y (hidden)"}
                 if method == "add_record":
                     allowed_keys = {"projectid", "pageid", "tplid", "beforeid", "afterid"}
                     if set(args) - allowed_keys or "tplid" not in args:
@@ -552,17 +559,21 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         ):
                             return {"status": "forbidden", "reason": "Page not approved"}
                     if method == "toggle_page_block_visibility":
-                        prior = await upstream.call_tool("get_record_html", args)
-                        if getattr(prior, "is_error", False):
-                            return {"status": "precondition_failed", "reason": "Cannot inspect old header"}
-                        prior_text = [p.text for p in prior.content
-                                      if getattr(p, "type", "") == "text"]
+                        records = result_data(await upstream.call_tool("get_page_records", {
+                            "projectid": pid, "pageid": pageid}))
+                        if not isinstance(records, list) or not any(
+                            isinstance(r, dict) and str(r.get("recordid")) == str(args["recordid"])
+                            for r in records
+                        ):
+                            return {"status": "forbidden", "reason": "Record not approved"}
                         try:
-                            rendered = json.loads(prior_text[0])["html"]
-                        except (IndexError, TypeError, KeyError, ValueError):
-                            return {"status": "precondition_failed", "reason": "Cannot parse old header"}
-                        if f'recordid="{args["recordid"]}" off="n"' not in rendered:
-                            return {"status": "precondition_failed", "reason": "Old header is not visible"}
+                            current_state = block_visibility(result_data(
+                                await upstream.call_tool("get_record_html", args)), args["recordid"])
+                        except ContractError:
+                            return {"status": "precondition_failed", "reason": "Cannot verify block visibility"}
+                        if current_state != payload["expected_old_value"]:
+                            return {"status": "precondition_failed", "reason": "Expected visibility differs; no changes"}
+                        desired_value = "y" if current_state == "n" else "n"
                     if method == "update_record":
                         records = await upstream.call_tool(
                             "get_page_records", {"projectid": pid, "pageid": pageid})
@@ -730,6 +741,14 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
                         args["fields"] = {send_field: args["fields"][verify_field]}
                     write_attempted = is_write
                     result = await upstream.call_tool(method, args)
+                    if method == "toggle_page_block_visibility":
+                        value = block_visibility(result_data(
+                            await upstream.call_tool("get_record_html", args)), args["recordid"])
+                        return {
+                            "status": "draft_verified" if value == desired_value else "verification_mismatch",
+                            "tool": method, "visibility": value, "hidden": value == "y",
+                            "published_by_agent": False, "retry_automatically": False,
+                        }
                     if verify_field is not None:
                         if method == "update_record":
                             checked = result_data(await upstream.call_tool("edit_record", {

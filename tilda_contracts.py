@@ -263,3 +263,40 @@ def validate_optional_read(method, args, inventory):
         raise ContractError("Upstream input schema differs")
     return True
 
+
+
+def block_visibility(data, recordid):
+    """Read only the native outer record wrapper; never infer from child markup."""
+    from html.parser import HTMLParser
+
+    if not isinstance(data, dict) or not isinstance(data.get("html"), str):
+        raise ContractError("Missing rendered block")
+
+    class WrapperParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.first = None
+            self.matches = 0
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if self.first is None:
+                self.first = (tag, attrs)
+            if values.get("recordid") == str(recordid):
+                self.matches += 1
+
+        handle_startendtag = handle_starttag
+
+    parser = WrapperParser()
+    parser.feed(data["html"])
+    if parser.first is None or parser.matches != 1:
+        raise ContractError("Ambiguous rendered block")
+    tag, attrs = parser.first
+    values = dict(attrs)
+    if (tag != "div" or len(values) != len(attrs)
+        or values.get("id") != "record" + str(recordid)
+        or values.get("recordid") != str(recordid)
+        or "record" not in values.get("class", "").split()
+        or values.get("off") not in ("n", "y")):
+        raise ContractError("Unknown block visibility")
+    return values["off"]
