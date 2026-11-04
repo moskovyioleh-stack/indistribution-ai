@@ -95,10 +95,10 @@ def action_catalog():
                 "write_methods": sorted(FEED_WRITES),
                 "scope": "all four approved projects; existing feeds only",
                 "draft_confirmation": "SAVE_DRAFT_ONLY",
-                "update_contract": "arguments={projectid,postuid}; payload.patch plus expected_post_version from feeds_get_post",
+                "update_contract": "arguments={projectid,postuid}; payload.patch and/or custom_fields_patch keyed by current fields[].lid; expected_post_version from feeds_get_post",
                 "publish_confirmation": "PUBLISH_FEED_POST",
                 "publish_contract": "feeds_publish_post is a guarded draft-to-published command; expected_post_version required; never unpublishes",
-                "custom_cms_writes": False,
+                "custom_cms_writes": "title, in, ta, formated, image, blockText; preserve every field; other types read-only",
                 "deletion": False,
             },
             "asset_upload": {
