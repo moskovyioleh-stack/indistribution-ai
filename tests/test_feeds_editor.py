@@ -55,6 +55,14 @@ class FeedsTests(unittest.IsolatedAsyncioTestCase):
         for key in ("disableamp", "disablerss", "nosearch", "nofollow"):
             self.assertEqual(saved[key], "")
 
+    async def test_standard_feed_null_sort_is_not_sent_as_integer(self):
+        u = FakeUpstream()
+        u.post["sort"] = None
+        r = await dispatch(u, "feeds_update_post", payload(u), PROJECTS)
+        self.assertEqual(r["status"], "draft_verified")
+        saved = next(a for n, a in u.calls if n == "feeds_update_post")
+        self.assertNotIn("sort", saved)
+
     async def test_creation_is_read_back_as_unpublished(self):
         u = FakeUpstream()
         r = await dispatch(u, "feeds_add_post", {

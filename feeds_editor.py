@@ -73,7 +73,8 @@ def update_arguments(pid, uid, post, patch, custom_patch=None):
         blocks = json.loads(patch["text"])
         if not isinstance(blocks, list) or any(not isinstance(b, dict) or not b.get("ty") for b in blocks):
             raise ContractError("Explicit editor block array required")
-    args = {key: canonical(post, key) for key in SAVE_FIELDS if key in post}
+    args = {key: canonical(post, key) for key in SAVE_FIELDS
+            if key in post and not (key == "sort" and post[key] is None)}
     # The standard editor's sections may be an array rather than write-form CSV.
     if isinstance(args.get("parts"), list):
         if any(not str(x).isdigit() for x in args["parts"]):
