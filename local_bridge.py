@@ -7,6 +7,7 @@ import hmac
 import os
 import secrets
 import time
+from feeds_editor import FEED_READS, FEED_WRITES, feed_call
 from starlette.responses import JSONResponse
 from tilda_contracts import (
     CheckedClient, ContractError, result_data, exact, field_contract,
@@ -81,7 +82,7 @@ DANGEROUS_ACTIONS = ("publish", "deploy", "unpublish", "delete_project", "delete
 
 def action_catalog():
     return {
-        "api_version": "1.1",
+        "api_version": "1.2",
         "implemented_read_only": list(READ_ACTIONS) + ["result", "capabilities", "plan", "tilda_mcp_get_projects", "tilda_mcp_tools", "tilda_mcp_read", "tilda_page_structure"],
         "planned_not_implemented": FUTURE_ACTIONS,
         "official_mcp": {
@@ -89,6 +90,17 @@ def action_catalog():
             "read_methods": sorted(NATIVE_READS),
             "catalog_checked_read_methods": sorted(OPTIONAL_READS),
             "write_methods": sorted(NATIVE_WRITES),
+            "feeds": {
+                "read_methods": sorted(FEED_READS),
+                "write_methods": sorted(FEED_WRITES),
+                "scope": "all four approved projects; existing feeds only",
+                "draft_confirmation": "SAVE_DRAFT_ONLY",
+                "update_contract": "arguments={projectid,postuid}; payload.patch plus expected_post_version from feeds_get_post",
+                "publish_confirmation": "PUBLISH_FEED_POST",
+                "publish_contract": "feeds_publish_post is a guarded draft-to-published command; expected_post_version required; never unpublishes",
+                "custom_cms_writes": False,
+                "deletion": False,
+            },
             "asset_upload": {
                 "tool": "upload_image", "alias": "tilda_upload_assets",
                 "confirmation": "SAVE_DRAFT_ONLY", "batch_size": "1-8",
@@ -123,7 +135,7 @@ def action_catalog():
 
         "permanently_disabled": list(DANGEROUS_ACTIONS),
         "rules": {
-            "publication": "never",
+            "publication": "pages never; individual feed post only through feeds_publish_post with PUBLISH_FEED_POST and expected_post_version",
             "writes": "explicit tilda_call allowlist; SAVE_DRAFT_ONLY; targeted field checks and readback",
             "scope": "GitHub owner + approved Tilda project/page + local agent allowlist",
             "draft_writes": "require exact target, optimistic source check, and explicit SAVE_DRAFT_ONLY confirmation",
@@ -168,10 +180,14 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
         each with image_base64 (or data URI), mimetype, filename; alternatively
         image_url on static.tildacdn.com. Requires SAVE_DRAFT_ONLY. Local paths
         are not transferred. PDF/documents unsupported. See capabilities.
-        Publishing, unpublishing and deletion are forbidden.
+        Page publishing, unpublishing and deletion are forbidden. Feeds use
+        tilda_call/feeds_*; draft edits require SAVE_DRAFT_ONLY and version.
+        Only feeds_publish_post can publish one post, with PUBLISH_FEED_POST.
         """
         if action in DANGEROUS_ACTIONS:
             return {"status": "forbidden", "reason": "Publication and deletion disabled"}
+        if action == "tilda_call" and str(payload.get("tool", "")).startswith("feeds_"):
+            return await feed_call(str(payload["tool"]), payload, APPROVED_PROJECT_IDS)
         if action == "tilda_swap_image_urls":
             import json
             import re
@@ -1148,5 +1164,6 @@ def register_bridge(mcp, owner_only, allowed_project, tilda):
             j["result"] = {k:v for k,v in result.items() if k in ("status","page_title","editor_open","editable_elements","reason","blocks","block_count","frame_count","fields")}
             j["status"] = "complete"
         return JSONResponse({"ok":True})
+
 
 
