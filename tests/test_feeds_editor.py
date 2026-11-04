@@ -31,7 +31,9 @@ class FakeUpstream:
             self.post["active"] = "" if self.post["active"] == "y" else "y"
             data = {"success": True}
         elif name == "feeds_add_post":
+            self.post.update(postuid="new123", title=args["title"], active="")
             data = {"postuid": "new123", "title": args["title"]}
+            data["uid"] = "new123"
         else:
             data = {"feeds": []}
         return {"structuredContent": data}
@@ -44,6 +46,16 @@ def payload(upstream, **extra):
 
 
 class FeedsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_creation_is_read_back_as_unpublished(self):
+        u = FakeUpstream()
+        r = await dispatch(u, "feeds_add_post", {
+            "arguments": {"projectid": 30763609, "feeduid": "feed123", "title": "Draft"},
+            "confirmation": "SAVE_DRAFT_ONLY"}, PROJECTS)
+        self.assertEqual(r["status"], "draft_created_verified")
+        self.assertFalse(r["published"])
+        self.assertEqual([n for n, _ in u.calls],
+                         ["get_projects", "feeds_get_feed", "feeds_add_post", "feeds_get_post"])
+
     async def test_read_all_four_and_deny_other_project(self):
         u = FakeUpstream()
         for pid in PROJECTS:
