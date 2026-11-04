@@ -25,6 +25,7 @@ class FakeUpstream:
             data = copy.deepcopy(self.post)
         elif name == "feeds_update_post":
             self.post.update({k: v for k, v in args.items() if k not in {"projectid", "visibility"}})
+            self.post.update(args.get("custom_fields", {}))
             data = {"success": True}
         elif name == "feeds_toggle_post_visibility":
             self.post["active"] = "" if self.post["active"] == "y" else "y"
@@ -102,13 +103,29 @@ class FeedsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r["status"], "write_unconfirmed")
         self.assertEqual(sum(n == "feeds_update_post" for n, _ in u.calls), 1)
 
-    async def test_body_requires_blocks_and_custom_feed_is_read_only(self):
+    async def test_body_requires_blocks_and_unknown_custom_type_is_blocked(self):
         u = FakeUpstream()
         r = await dispatch(u, "feeds_update_post", payload(u, patch={"text": "plain text"}), PROJECTS)
         self.assertEqual(r["status"], "precondition_failed")
         u.post["fields"] = [{"lid": 1}]
         r = await dispatch(u, "feeds_update_post", payload(u), PROJECTS)
-        self.assertEqual(r["status"], "unsupported_feed_type")
+        self.assertEqual(r["status"], "precondition_failed")
+
+    async def test_custom_fields_preserved_and_editable_without_hardcoded_lids(self):
+        u = FakeUpstream()
+        u.post.update(fields=[{"lid": "123", "li_type": "ta"},
+                              {"lid": "456", "li_type": "image"},
+                              {"lid": "789", "li_type": "formated"}],
+                      **{"123": "Announcement", "456": {"url": "", "alt": ""},
+                         "789": "<p>Original body</p>"})
+        r = await dispatch(u, "feeds_update_post", payload(u,
+            patch={}, custom_fields_patch={"789": "<p>New body</p>"}), PROJECTS)
+        # Simulate the provider's numeric-field expansion in the mock below.
+        self.assertEqual(r["status"], "draft_verified")
+        saved = next(a for n, a in u.calls if n == "feeds_update_post")
+        self.assertEqual(saved["custom_fields"]["123"], "Announcement")
+        self.assertEqual(saved["custom_fields"]["456"], {"url": "", "alt": ""})
+        self.assertEqual(saved["custom_fields"]["789"], "<p>New body</p>")
 
 
 if __name__ == "__main__":
