@@ -46,6 +46,15 @@ def payload(upstream, **extra):
 
 
 class FeedsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_false_flags_are_sent_as_empty_not_truthy_n(self):
+        u = FakeUpstream()
+        u.post.update(disableamp="n", disablerss="n", nosearch="n", nofollow="n")
+        r = await dispatch(u, "feeds_update_post", payload(u), PROJECTS)
+        self.assertEqual(r["status"], "draft_verified")
+        saved = next(a for n, a in u.calls if n == "feeds_update_post")
+        for key in ("disableamp", "disablerss", "nosearch", "nofollow"):
+            self.assertEqual(saved[key], "")
+
     async def test_creation_is_read_back_as_unpublished(self):
         u = FakeUpstream()
         r = await dispatch(u, "feeds_add_post", {

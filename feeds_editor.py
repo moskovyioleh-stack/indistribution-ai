@@ -13,8 +13,9 @@ FEED_READS = {
 FEED_WRITES = {"feeds_add_post", "feeds_update_post", "feeds_publish_post"}
 FEED_LOCK = asyncio.Lock()
 UID = re.compile(r"^[A-Za-z0-9]{1,40}$")
+FLAGS = {"nosearch", "nofollow", "disableamp", "disablerss", "pinned", "disablecomments"}
 PATCH_FIELDS = {"title", "descr", "text", "image", "imagealt", "thumb", "thumbalt",
-                "seo_title", "seo_descr", "fb_title", "fb_descr", "postalias"}
+                "seo_title", "seo_descr", "fb_title", "fb_descr", "postalias"} | FLAGS
 SAVE_FIELDS = PATCH_FIELDS | {
     "mediatype", "mediadata", "authorname", "authorurl", "authorimg", "directlink",
     "directtarget", "disablecomments", "priority", "pinned", "date", "sort", "parts",
@@ -45,6 +46,8 @@ def post_object(data, uid):
 
 def canonical(post, key):
     value = post.get(key)
+    if key in FLAGS and value in ("n", "", None):
+        return ""
     if key in {"text", "descr"} and isinstance(value, str):
         return html.unescape(value)
     if key == "postalias" and value is None:
@@ -60,6 +63,8 @@ def update_arguments(pid, uid, post, patch, custom_patch=None):
         raise ContractError("Unsupported patch fields")
     if any(not isinstance(value, str) for value in patch.values()):
         raise ContractError("Text patch values required")
+    if any(patch[key] not in {"", "n", "y"} for key in FLAGS & patch.keys()):
+        raise ContractError("Flags require n, y or empty")
     if "title" in patch and not patch["title"].strip():
         raise ContractError("Nonempty title required")
     if any(key not in post for key in patch):
@@ -74,7 +79,7 @@ def update_arguments(pid, uid, post, patch, custom_patch=None):
         if any(not str(x).isdigit() for x in args["parts"]):
             raise ContractError("Unknown post sections")
         args["parts"] = ",".join(str(x) for x in args["parts"])
-    args.update(patch)
+    args.update({key: canonical(patch, key) for key in patch})
     args.update(projectid=pid, postuid=uid, visibility="")
     fields = post.get("fields") or []
     if fields:
@@ -188,7 +193,7 @@ async def dispatch(upstream, method, payload, approved):
             patch = payload.get("patch", {})
             custom_patch = payload.get("custom_fields_patch", {})
             save_args = update_arguments(pid, postuid, post, patch, custom_patch)
-            if (all(exact(canonical(post, k), v) for k, v in patch.items())
+            if (all(exact(canonical(post, k), canonical(patch, k)) for k in patch)
                     and all(exact(post.get(k), v) for k, v in custom_patch.items())):
                 return {"status": "draft_verified", "changed": False, "write_performed": False,
                         "post_version": version(post), "published": False}
