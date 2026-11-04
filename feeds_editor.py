@@ -52,8 +52,11 @@ def canonical(post, key):
     return value
 
 
-def update_arguments(pid, uid, post, patch):
-    if not isinstance(patch, dict) or not patch or set(patch) - PATCH_FIELDS:
+def update_arguments(pid, uid, post, patch, custom_patch=None):
+    custom_patch = {} if custom_patch is None else custom_patch
+    if not isinstance(custom_patch, dict):
+        raise ContractError("Custom field patch must be an object")
+    if not isinstance(patch, dict) or (not patch and not custom_patch) or set(patch) - PATCH_FIELDS:
         raise ContractError("Unsupported patch fields")
     if any(not isinstance(value, str) for value in patch.values()):
         raise ContractError("Text patch values required")
@@ -73,6 +76,42 @@ def update_arguments(pid, uid, post, patch):
         args["parts"] = ",".join(str(x) for x in args["parts"])
     args.update(patch)
     args.update(projectid=pid, postuid=uid, visibility="")
+    fields = post.get("fields") or []
+    if fields:
+        custom = {}
+        kinds = {}
+        for field in fields:
+            lid, kind = str(field.get("lid", "")), field.get("li_type")
+            if kind == "title":
+                continue
+            if (not lid.isdigit() or kind not in {"in", "ta", "formated", "image", "blockText"}
+                    or lid not in post):
+                raise ContractError("Unsupported or missing custom field")
+            kinds[lid] = kind
+            custom[lid] = post[lid]
+            if kind == "blockText":
+                # Rendered HTML is never sent as the block editor's backing JSON.
+                backing = patch.get("text", canonical(post, "text"))
+                if backing:
+                    blocks = json.loads(backing)
+                    if not isinstance(blocks, list):
+                        raise ContractError("Missing blockText backing JSON")
+                custom[lid] = backing or "[]"
+        if set(custom_patch) - set(custom):
+            raise ContractError("Unknown custom field lid")
+        for lid, value in custom_patch.items():
+            kind = kinds[lid]
+            if kind in {"in", "ta", "formated"} and not isinstance(value, str):
+                raise ContractError("Custom text value must be a string")
+            if kind == "image" and (not isinstance(value, dict) or set(value) != {"url", "alt"}
+                    or any(not isinstance(x, str) for x in value.values())):
+                raise ContractError("Image requires URL and alt")
+            if kind == "blockText" and value != patch.get("text"):
+                raise ContractError("blockText must match explicit text JSON")
+            custom[lid] = value
+        args["custom_fields"] = custom
+    elif custom_patch:
+        raise ContractError("Standard feed has no custom fields")
     return args
 
 
@@ -119,9 +158,15 @@ async def dispatch(upstream, method, payload, approved):
             result_data(await upstream.call_tool("feeds_get_feed", {"projectid": pid, "feeduid": args["feeduid"]}))
             write_attempted = True
             created = result_data(await upstream.call_tool(method, args))
-            return {"status": "draft_created_unverified", "project_id": pid,
-                    "data": created, "write_performed": True,
-                    "next_step": "Read returned postuid with feeds_get_post and verify active is not y"}
+            uid = created.get("uid") if isinstance(created, dict) else None
+            if not isinstance(uid, str) or not UID.fullmatch(uid):
+                return {"status": "write_unconfirmed", "data": created, "write_performed": True}
+            checked = post_object(result_data(await upstream.call_tool("feeds_get_post", {
+                "projectid": pid, "postuid": uid})), uid)
+            return {"status": "draft_created_verified" if not active(checked)
+                    and checked["title"] == args["title"] else "verification_mismatch",
+                    "project_id": pid, "postuid": uid, "post_version": version(checked),
+                    "published": active(checked), "write_performed": True}
         async with FEED_LOCK:
             post = post_object(result_data(await upstream.call_tool("feeds_get_post", {
                 "projectid": pid, "postuid": postuid})), postuid)
@@ -140,12 +185,11 @@ async def dispatch(upstream, method, payload, approved):
                 return {"status": "published_verified" if active(checked) else "verification_mismatch",
                         "project_id": pid, "postuid": postuid, "post_version": version(checked),
                         "published": active(checked), "write_performed": True}
-            # Custom feeds need a separate typed-field preservation contract.
-            if post.get("fields"):
-                return {"status": "unsupported_feed_type", "reason": "Custom CMS writes not enabled"}
-            patch = payload.get("patch")
-            save_args = update_arguments(pid, postuid, post, patch)
-            if all(exact(canonical(post, k), v) for k, v in patch.items()):
+            patch = payload.get("patch", {})
+            custom_patch = payload.get("custom_fields_patch", {})
+            save_args = update_arguments(pid, postuid, post, patch, custom_patch)
+            if (all(exact(canonical(post, k), v) for k, v in patch.items())
+                    and all(exact(post.get(k), v) for k, v in custom_patch.items())):
                 return {"status": "draft_verified", "changed": False, "write_performed": False,
                         "post_version": version(post), "published": False}
             write_attempted = True
@@ -154,14 +198,31 @@ async def dispatch(upstream, method, payload, approved):
                 "projectid": pid, "postuid": postuid})), postuid)
             mismatch = [k for k, v in save_args.items() if k in SAVE_FIELDS
                         and not exact(canonical(checked, k), v)]
+            for lid, value in save_args.get("custom_fields", {}).items():
+                field = next(f for f in post["fields"] if str(f.get("lid")) == lid)
+                if field.get("li_type") != "blockText" and not exact(checked.get(lid), value):
+                    mismatch.append(lid)
             ok = not active(checked) and not mismatch
             return {"status": "draft_verified" if ok else "verification_mismatch",
                     "project_id": pid, "postuid": postuid, "post_version": version(checked),
                     "published": active(checked), "write_performed": True,
                     "mismatch_fields": mismatch}
     except Exception as exc:
+        # Classify only fixed phrases; never return upstream text or credentials.
+        message = str(exc).lower()
+        category = "unclassified"
+        for phrases, label in [
+            (("not enabled", "not connected", "not activated", "не подключ", "не активир"), "module_not_enabled"),
+            (("permission", "access denied", "forbidden", "not allowed", "доступ"), "access_denied"),
+            (("not found", "no feeds", "не найден"), "not_found"),
+            (("too many", "rate limit", "429"), "rate_limit"),
+        ]:
+            if any(phrase in message for phrase in phrases):
+                category = label
+                break
         return {"status": "write_unconfirmed" if write_attempted else "precondition_failed",
-                "write_attempted": write_attempted, **safe_failure_metadata(exc),
+                "write_attempted": write_attempted, "stage": getattr(upstream, "last_tool", None),
+                "error_category": category, **safe_failure_metadata(exc),
                 "reason": "Feed operation stopped; do not retry writes before reading current state"}
 
 
